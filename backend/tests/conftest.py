@@ -68,6 +68,13 @@ def db_engine() -> Iterator[Engine]:
 
 
 @pytest.fixture(autouse=True)
+def no_real_model(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only tests marked ``llm`` may reach the configured Ollama chat model."""
+    if request.node.get_closest_marker("llm") is None:
+        monkeypatch.setattr(get_settings(), "ollama_model", None)
+
+
+@pytest.fixture(autouse=True)
 def fake_embeddings() -> Iterator[FakeEmbeddings]:
     """Never call a real embedding model in tests."""
     service = FakeEmbeddings()

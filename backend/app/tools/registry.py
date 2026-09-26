@@ -33,6 +33,8 @@ class ToolContext:
     journal_entry_id: uuid.UUID | None = None
     # Records created in this turn: (model class, id), used to link them to the journal entry.
     created: list[tuple[type, uuid.UUID]] = field(default_factory=list)
+    # The model, for tools that write report prose. None in contexts without one.
+    llm: Any = None
 
 
 Handler = Callable[[ToolContext, Any], Any]

@@ -10,6 +10,7 @@ from app.api.routes import (
     moods,
     people,
     planning,
+    reports,
     sleep,
 )
 
@@ -30,5 +31,8 @@ for router in (
     planning.reminders_router,
     planning.decisions_router,
     planning.waiting_router,
+    reports.events_router,
+    reports.timeline_router,
+    reports.reports_router,
 ):
     api_router.include_router(router)

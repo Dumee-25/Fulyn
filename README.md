@@ -17,8 +17,9 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 4 | Memory: memory table, local embeddings, hybrid semantic + full-text search, importance | Done |
 | 5 | People and music: people, interactions, music memories, linked into memory search | Done |
 | 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Done |
-| 7 | Timeline and reports: life timeline, daily and weekly recaps, monthly report | Next |
-| 8–10 | people and music, personal management, reports, analytics, vault, export | Planned |
+| 7 | Timeline and reports: life events, life timeline, daily and weekly recaps, monthly report | Done |
+| 8 | Analytics: dashboard charts and cross-domain analytics | Next |
+| 9–10 | people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
@@ -118,8 +119,9 @@ The Next.js server proxies every `/api/*` request to `BACKEND_URL`
 cd backend && pytest && ruff check . && ruff format --check .
 ```
 
-Agent tests use a scripted fake model, so they are fast and deterministic. Tests against
-the real configured model are opt-in:
+Agent tests use a scripted fake model, so they are fast and deterministic; a test fixture
+makes it impossible for them to reach the real model. Tests against the real configured
+model are opt-in (they depend on the model, so an occasional run can differ):
 
 ```bash
 cd backend && RUN_LLM_TESTS=1 pytest -m llm
@@ -144,7 +146,7 @@ alembic upgrade head
 Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
 journal entries); `0005` adds people, interactions and music memories; `0006` adds subscriptions,
-reminders, decisions and waiting items.
+reminders, decisions and waiting items; `0007` adds life events and stored reports.
 
 ## The agent
 
@@ -252,6 +254,31 @@ finds "Uber home because it was raining".
   spending. On the Expenses page, click "impulse" on a row to toggle it; the monthly
   summary shows impulse spending separately.
 
+## Timeline and reports
+
+- **Life events** record outings and milestones ("Barista with Maya", "passed the driving
+  test"); the agent creates them for notable occasions, not routine ones. They are part
+  of memory search.
+- **Timeline** (`/timeline`) merges life events, decisions, interactions and music memories
+  at or above a minimum importance (default 2), journal entries only when notable (3+),
+  and expenses at or above `MAJOR_PURCHASE_AMOUNT` (default Rs. 10,000). So a normal coffee
+  never appears.
+- **Reports** (`/reports`): daily recap, weekly recap (Monday–Sunday, compared with the week
+  before) and monthly life report. They are generated on demand and stored; generating
+  again replaces the stored version.
+- **Facts come from code, prose from the model.** Every number and list in a report is
+  computed by SQL in `app/reports/stats.py` and rendered by `app/reports/render.py`. The
+  model only adds a short narrative (daily, weekly) or "the month in one sentence" and
+  recurring themes (monthly), and is given nothing but those computed facts (plus public
+  journal excerpts for themes). It is told not to add events, times, feelings or causes.
+  If the model is unavailable, reports are produced without prose.
+- **Patterns, not causes.** The weekly recap compares sleep after higher- and
+  lower-caffeine days; if the difference is at least 30 minutes over 3+ days, it says the
+  two *coincided* and that this is a pattern, not a cause.
+- **Vault data never appears**: private journal entries, and any record linked to one, are
+  excluded from the timeline, every report, and the data the model sees for reports.
+- People in reports are listed alphabetically with interaction counts, never ranked.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -280,6 +307,11 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | `/api/reminders` | `status` (default pending), `due_before`, `q`; `POST /{id}/complete` |
 | `/api/decisions` | `q`, `status`, date range |
 | `/api/waiting` | `status` (default waiting), `q`; setting `status` sets `resolved_at` |
+| `/api/events` | life events; `q`, `min_importance`, date range |
+| `/api/timeline` | `date_from`, `date_to`, `min_importance` |
+| `/api/reports/daily` | `GET ?date=` stored recap; `POST {date}` generate |
+| `/api/reports/weekly` | `GET ?date=` (any day of the week); `POST {date}` |
+| `/api/reports/monthly` | `GET ?year=&month=`; `POST {year, month}` |
 | `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |
@@ -298,6 +330,7 @@ All settings come from environment variables (see `.env.example`):
 | `DATABASE_URL` | local `fulyn` DB | SQLAlchemy URL (`postgresql+psycopg://…`) |
 | `DEFAULT_TIMEZONE` | `Asia/Colombo` | Used to interpret "today", "last night" and similar |
 | `DEFAULT_CURRENCY` | `LKR` | ISO 4217 code for amounts |
+| `MAJOR_PURCHASE_AMOUNT` | `10000` | Expenses at or above this (home currency) appear on the timeline |
 | `EXPENSE_CATEGORIES` | Food, Cafe, Transport, … Other | JSON list of allowed categories |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
 | `OLLAMA_MODEL` | none | Model name. No default on purpose: set it explicitly |

@@ -14,6 +14,7 @@ const LABELS: Record<string, string> = {
   create_reminder: "reminder",
   create_decision: "decision",
   create_waiting_item: "waiting",
+  create_life_event: "event",
 };
 
 function label(tool: string): string | null {
@@ -21,6 +22,7 @@ function label(tool: string): string | null {
   if (tool === "set_memory_importance") return "importance changed";
   if (tool === "complete_reminder") return "reminder done";
   if (tool === "resolve_waiting_item") return "resolved";
+  if (tool.startsWith("generate_")) return "report saved";
   const [verb, ...rest] = tool.split("_");
   const noun = rest.join(" ").replace(/ log$/, "").replace(/ entry$/, "");
   if (verb === "update") return `edited ${noun}`;

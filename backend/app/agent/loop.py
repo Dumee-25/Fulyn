@@ -67,7 +67,7 @@ def run_agent(
         {"role": "user", "content": user_message},
     ]
 
-    ctx = ToolContext(db=db, user_message=user_message)
+    ctx = ToolContext(db=db, user_message=user_message, llm=llm)
     actions: list[ActionRecord] = []
     reply = STEP_LIMIT_REPLY
 

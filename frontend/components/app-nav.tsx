@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import {
   Bell,
   BookOpen,
+  CalendarRange,
   Coffee,
+  FileText,
   Hourglass,
   LayoutDashboard,
   MessageCircle,
@@ -30,6 +32,8 @@ const GROUPS: { label: string | null; links: NavLink[] }[] = [
     links: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/chat", label: "Chat", icon: MessageCircle },
+      { href: "/timeline", label: "Timeline", icon: CalendarRange },
+      { href: "/reports", label: "Reports", icon: FileText },
     ],
   },
   {

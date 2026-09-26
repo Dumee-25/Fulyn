@@ -19,6 +19,7 @@ from app.models import (
     Decision,
     Expense,
     JournalEntry,
+    LifeEvent,
     MoodLog,
     MusicMemory,
     Person,
@@ -83,7 +84,7 @@ def test_admits_missing_records(chat: Chat) -> None:
 
 
 def test_acceptance_conversation(chat: Chat) -> None:
-    """Spec section 47, for the parts built so far (life events come later)."""
+    """Spec section 47: every expected record, then correction, core memory and recall."""
     message = (
         "Slept around 2 last night and woke at 7. Had an iced latte at 10. Went to Barista "
         "with Maya after uni and spent 1450. Pretty nice day honestly."
@@ -114,7 +115,10 @@ def test_acceptance_conversation(chat: Chat) -> None:
     (interaction,) = chat.all(PersonInteraction)
     assert interaction.person_id == maya.id
 
-    for record in (sleep, coffee, expense, mood, interaction):
+    (event,) = chat.all(LifeEvent)
+    assert "maya" in event.title.lower() or "barista" in event.title.lower()
+
+    for record in (sleep, coffee, expense, mood, interaction, event):
         assert record.journal_entry_id == entry.id
 
     chat.send("Actually the Barista bill was 1550.")
@@ -123,8 +127,10 @@ def test_acceptance_conversation(chat: Chat) -> None:
     assert len(chat.all(Expense)) == 1
 
     chat.send("Make that evening a core memory.")
-    chat.db.refresh(entry)
-    assert entry.importance_score == 5
+    # Any record of that evening counts: the journal entry, the outing or the interaction.
+    for record in (entry, event, interaction):
+        chat.db.refresh(record)
+    assert 5 in (entry.importance_score, event.importance_score, interaction.importance_score)
 
     result = chat.send("What did I do that day?")
     assert "1550" in result.reply.replace(",", "") or "1,550" in result.reply
@@ -204,3 +210,12 @@ def test_impulse_purchase(chat: Chat) -> None:
     chat.send("Actually don't count that as impulse, I'd planned it.")
     chat.db.refresh(expense)
     assert not expense.is_impulse
+
+
+def test_daily_recap_is_grounded(chat: Chat) -> None:
+    chat.send("Spent 1200 on lunch with Maya, had two coffees, slept 6 hours last night.")
+    result = chat.send("Give me a recap of today.")
+    assert "generate_daily_recap" in [a.tool for a in result.actions]
+    reply = result.reply.replace(",", "")
+    assert "1200" in reply
+    assert "maya" in result.reply.lower()

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
         "Technology",
         "Other",
     ]
+
+    # Expenses at or above this amount (home currency) appear on the life timeline.
+    major_purchase_amount: Decimal = Decimal("10000")
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

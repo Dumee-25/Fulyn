@@ -256,3 +256,23 @@ export interface WaitingItem {
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
+
+export type TimelineKind = "event" | "decision" | "interaction" | "music" | "journal" | "purchase";
+
+export interface TimelineItem {
+  kind: TimelineKind;
+  id: string;
+  date: ISODate;
+  title: string;
+  detail: string | null;
+  importance_score: number;
+}
+
+export interface Report {
+  kind: "daily" | "weekly" | "monthly";
+  period_start: ISODate;
+  period_end: ISODate;
+  content: string;
+  data: Record<string, unknown>;
+  generated_at: ISODateTime;
+}

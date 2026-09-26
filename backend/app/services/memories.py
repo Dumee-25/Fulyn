@@ -18,6 +18,7 @@ from app.models.journal import JournalEntry
 from app.models.memory import Memory
 from app.models.people import MusicMemory, Person, PersonInteraction
 from app.models.planning import Decision
+from app.models.report import LifeEvent
 from app.schemas.memory import MemorySearchResponse, MemorySearchResult, MemoryUpdate
 from app.services import crud
 from app.services.embeddings import EmbeddingUnavailableError, get_embedding_service
@@ -103,6 +104,7 @@ def _propagate_privacy(db: Session, entry: JournalEntry) -> None:
         ),
         ("music", select(MusicMemory.id).where(MusicMemory.journal_entry_id == entry.id)),
         ("decision", select(Decision.id).where(Decision.journal_entry_id == entry.id)),
+        ("event", select(LifeEvent.id).where(LifeEvent.journal_entry_id == entry.id)),
     ]
     for memory_type, ids in linked:
         for memory in db.scalars(
@@ -171,6 +173,24 @@ def sync_decision_memory(db: Session, decision: Decision) -> Memory:
         memory_date=decision.decision_date,
         importance_score=decision.importance_score,
         is_private=_journal_is_private(db, decision.journal_entry_id),
+    )
+
+
+def sync_event_memory(db: Session, event: LifeEvent) -> Memory:
+    parts = [event.title]
+    if event.description:
+        parts.append(event.description)
+    if event.event_type:
+        parts.append(f"Type: {event.event_type}")
+    return upsert_memory(
+        db,
+        memory_type="event",
+        source_id=event.id,
+        title=event.title[:TITLE_MAX],
+        content="\n".join(parts),
+        memory_date=event.event_date,
+        importance_score=event.importance_score,
+        is_private=_journal_is_private(db, event.journal_entry_id),
     )
 
 
@@ -361,6 +381,7 @@ IMPORTANCE_SOURCES: dict[str, type] = {
     "person_interaction": PersonInteraction,
     "music": MusicMemory,
     "decision": Decision,
+    "event": LifeEvent,
 }
 
 
