@@ -15,7 +15,7 @@ from app.core.config import get_settings
 from app.main import app
 from app.models import Expense, JournalEntry, SleepLog
 from app.services.conversations import get_or_create_conversation
-from app.tools.life_logging import build_registry
+from app.tools.catalog import build_registry
 from tests.fake_llm import FakeLLM, LoopingLLM, call, say, tool_results, tools
 
 
@@ -265,3 +265,51 @@ class TestChatApi:
         res = api.post("/api/chat", json={"message": "hi"})
         assert res.status_code == 503
         assert "OLLAMA_MODEL" in res.json()["detail"]
+
+
+class TestMemoryTools:
+    def test_search_memories_tool(self, db: Session) -> None:
+        from app.schemas.journal import JournalEntryCreate
+        from app.services import journal
+
+        journal.create_journal_entry(db, JournalEntryCreate(raw_text="Coffee with Sarah"))
+        journal.create_journal_entry(db, JournalEntryCreate(raw_text="Gym session"))
+        llm = FakeLLM(tools(call("search_memories", query="Sarah")), say("You had coffee."))
+        _run(db, "Show me memories about Sarah.", llm)
+
+        found = tool_results(llm.requests[1], "search_memories")[0]
+        assert found["results"][0]["content"] == "Coffee with Sarah"
+        assert found["results"][0]["keyword_match"] is True
+        assert "is_private" not in found["results"][0]
+        # A question is not a journal entry.
+        assert len(_all(db, JournalEntry)) == 2
+
+    def test_set_memory_importance_tool(self, db: Session) -> None:
+        first = FakeLLM(tools(call("create_journal_entry")), say("Saved."))
+        _, conversation = _run(db, "Evening at Barista with Maya.", first)
+
+        def find(messages):
+            return tools(call("search_memories", query="Barista Maya"))
+
+        def promote(messages):
+            memory = tool_results(messages, "search_memories")[0]["results"][0]
+            return tools(call("set_memory_importance", memory_id=memory["id"], importance_score=5))
+
+        _run(
+            db,
+            "Make that evening a core memory.",
+            FakeLLM(find, promote, say("Done.")),
+            conversation,
+        )
+        assert _all(db, JournalEntry)[0].importance_score == 5
+
+    def test_listing_without_query(self, db: Session) -> None:
+        from app.schemas.journal import JournalEntryCreate
+        from app.services import journal
+
+        journal.create_journal_entry(db, JournalEntryCreate(raw_text="Big day", importance_score=5))
+        journal.create_journal_entry(db, JournalEntryCreate(raw_text="Normal day"))
+        llm = FakeLLM(tools(call("search_memories", min_importance=5)), say("One."))
+        _run(db, "What are my core memories?", llm)
+        found = tool_results(llm.requests[1], "search_memories")[0]
+        assert [r["content"] for r in found["results"]] == ["Big day"]

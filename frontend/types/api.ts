@@ -101,3 +101,27 @@ export interface ChatMessage {
   actions: ChatAction[];
   created_at: ISODateTime;
 }
+
+export interface Memory {
+  id: string;
+  memory_type: string;
+  source_id: string | null;
+  title: string | null;
+  content: string;
+  memory_date: ISODate;
+  importance_score: number;
+  is_private: boolean;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface MemorySearchResult extends Memory {
+  similarity: number | null;
+  keyword_match: boolean;
+}
+
+export interface MemorySearchResponse {
+  query: string;
+  semantic: boolean;
+  results: MemorySearchResult[];
+}

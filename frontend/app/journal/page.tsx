@@ -13,9 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useApi } from "@/hooks/use-api";
 import { apiSend } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { IMPORTANCE_LABELS } from "@/lib/importance";
 import type { JournalEntry } from "@/types/api";
-
-const IMPORTANCE = ["disposable", "mundane", "normal", "notable", "important", "core memory"];
 
 export default function JournalPage() {
   const entries = useApi<JournalEntry[]>("/journal", { limit: 100 });
@@ -50,7 +49,7 @@ export default function JournalPage() {
               </Field>
               <Field label="Importance" htmlFor="importance_score" className="w-40">
                 <NativeSelect id="importance_score" name="importance_score" defaultValue="2">
-                  {IMPORTANCE.map((label, score) => (
+                  {IMPORTANCE_LABELS.map((label, score) => (
                     <option key={score} value={score}>
                       {score} · {label}
                     </option>
@@ -75,7 +74,7 @@ export default function JournalPage() {
             <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{formatDate(entry.entry_date)}</span>
               {entry.importance_score >= 3 && (
-                <Badge variant="secondary">{IMPORTANCE[entry.importance_score]}</Badge>
+                <Badge variant="secondary">{IMPORTANCE_LABELS[entry.importance_score]}</Badge>
               )}
               {entry.is_private && <Lock className="size-3" aria-label="Private" />}
               <span className="ml-auto">

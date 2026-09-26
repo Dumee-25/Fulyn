@@ -24,7 +24,7 @@ from app.schemas.journal import JournalEntryCreate, JournalEntryRead, JournalEnt
 from app.schemas.mood import MoodLogCreate, MoodLogRead, MoodLogUpdate
 from app.schemas.sleep import SleepLogCreate, SleepLogRead, SleepLogUpdate
 from app.services import caffeine, expenses, journal, moods, sleep
-from app.tools.registry import Tool, ToolContext, ToolRegistry
+from app.tools.registry import Tool, ToolContext
 
 Limit = Annotated[int, Field(ge=1, le=100, description="Maximum records to return")]
 HiddenJournalId = SkipJsonSchema[uuid.UUID | None]
@@ -220,9 +220,8 @@ def _list_tool(
     return Tool(name, description, DateRangeArgs, handler)
 
 
-def build_registry() -> ToolRegistry:
-    registry = ToolRegistry()
-    tools = [
+def life_logging_tools() -> list[Tool]:
+    return [
         Tool(
             "create_journal_entry",
             "Save the user's current message verbatim as a journal entry. Call once whenever "
@@ -356,9 +355,6 @@ def build_registry() -> ToolRegistry:
             caffeine.delete_caffeine_log,
         ),
     ]
-    for tool in tools:
-        registry.register(tool)
-    return registry
 
 
 def finalize_turn(ctx: ToolContext) -> None:

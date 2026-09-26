@@ -21,6 +21,8 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.services.embeddings import set_embedding_service
+from tests.fake_embeddings import FakeEmbeddings
 
 
 def _test_database_url() -> str:
@@ -57,10 +59,21 @@ def db_engine() -> Iterator[Engine]:
     except OperationalError:
         pytest.skip("PostgreSQL is not reachable; start it with `docker compose up -d db`")
     engine = create_engine(url, connect_args={"connect_timeout": 3})
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def fake_embeddings() -> Iterator[FakeEmbeddings]:
+    """Never call a real embedding model in tests."""
+    service = FakeEmbeddings()
+    set_embedding_service(service)
+    yield service
+    set_embedding_service(None)
 
 
 @pytest.fixture

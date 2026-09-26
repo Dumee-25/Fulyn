@@ -17,7 +17,8 @@ from app.core.config import get_settings
 from app.core.time import now_local
 from app.models.conversation import Conversation
 from app.services import conversations
-from app.tools.life_logging import build_registry, finalize_turn
+from app.tools.catalog import build_registry
+from app.tools.life_logging import finalize_turn
 from app.tools.registry import ToolContext, ToolRegistry
 
 logger = logging.getLogger(__name__)

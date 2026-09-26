@@ -14,8 +14,9 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 1 | Foundation: repo layout, FastAPI, PostgreSQL + pgvector, SQLAlchemy, Alembic, Next.js, Tailwind, shadcn/ui, Docker Compose, config, health check | Done |
 | 2 | Core life logging: journal, expenses, mood, sleep, caffeine (models, CRUD API, pages) | Done |
 | 3 | Agent: Ollama client, system prompt, tool registry, agent loop, chat endpoint and page | Done |
-| 4 | Memory: pgvector embeddings, semantic search, memory table, importance | Next |
-| 5–10 | People and music, people and music, personal management, reports, analytics, vault, export | Planned |
+| 4 | Memory: memory table, local embeddings, hybrid semantic + full-text search, importance | Done |
+| 5 | People and music: people, interactions, music memories, semantic linking | Next |
+| 6–10 | people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
@@ -139,7 +140,8 @@ alembic upgrade head
 ```
 
 Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
-`0003` adds chat conversations.
+`0003` adds chat conversations; `0004` adds memories (and creates memories for existing
+journal entries).
 
 ## The agent
 
@@ -175,6 +177,33 @@ Guarantees enforced in code rather than left to the prompt:
 Chat transcripts (including tool calls) are stored in `conversations` and
 `chat_messages` so later messages can refer back to earlier records.
 
+## Memory
+
+Every journal entry is mirrored into the `memories` table, the single searchable index
+(later phases add events, interactions, decisions and music). Each memory stores the text,
+date, importance (0 disposable … 5 core memory), privacy flag, a 768-dimension embedding
+and a generated full-text vector.
+
+**Search is hybrid.** Testing `nomic-embed-text` showed that vector similarity alone is not
+trustworthy here: a query about a person who never appears ("what happened with John")
+scored 0.62 against unrelated entries, higher than some real matches, and a name barely
+moves the ranking. So `search_memories` runs both a pgvector cosine search and a Postgres
+full-text search, merges them with reciprocal rank fusion, adds a small boost per
+importance point, and marks each result with `keyword_match`. The agent is told that
+semantic-only neighbours are not evidence. Conceptual queries still work: "rainy evening"
+finds "Uber home because it was raining".
+
+- Embeddings are made by `OLLAMA_EMBED_MODEL` (default setup: `nomic-embed-text`, local).
+  If it is unset or unreachable, entries are still saved and search falls back to
+  full-text only; missing embeddings are filled in on the next search or with
+  `POST /api/memories/backfill`. Changing the embedding model re-embeds automatically;
+  a model with a different dimension needs a migration (`EMBEDDING_DIMENSIONS` in
+  `app/models/memory.py`).
+- Importance stays in sync both ways: changing a memory updates its journal entry and
+  vice versa. "Remember this" and "make that a core memory" set it to 5.
+- Private entries are never returned by memory listing, search, `GET /api/memories/{id}`
+  or the agent's search tool. Vault search comes in Phase 9.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -196,6 +225,7 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | --- | --- |
 | `POST /api/chat` | `{message, conversation_id?}` → `{conversation_id, reply, actions}` |
 | `/api/chat/conversations` | list; `GET /{id}/messages` returns the transcript |
+| `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |
 | `/api/moods` | |
@@ -217,6 +247,8 @@ All settings come from environment variables (see `.env.example`):
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
 | `OLLAMA_MODEL` | none | Model name. No default on purpose: set it explicitly |
 | `OLLAMA_TIMEOUT_SECONDS` | `180` | Per model call |
+| `OLLAMA_EMBED_MODEL` | none | Embedding model for semantic search (768 dimensions), e.g. `nomic-embed-text` |
+| `EMBED_DOCUMENT_PREFIX` / `EMBED_QUERY_PREFIX` | empty | Task prefixes some embedding models expect |
 | `AGENT_MAX_TOOL_ITERATIONS` | `8` | Model rounds per message |
 | `AGENT_HISTORY_MESSAGES` | `30` | Earlier chat messages sent as context |
 | `BACKEND_URL` | `http://localhost:8000` | Where the frontend proxies `/api/*` |
@@ -252,7 +284,11 @@ All settings come from environment variables (see `.env.example`):
   (case-insensitive), so the list can change without a migration. Un-marking an impulse
   purchase clears its `impulse_reason`.
 - **Deleting a journal entry keeps linked records**; their `journal_entry_id` becomes `NULL`.
-- **Embeddings are not stored yet.** The `embedding` column is added in Phase 4 once the
-  embedding model (and its dimension) is chosen.
+- **One semantic index.** The spec lists an `embedding` column on journal entries; instead
+  all embeddings live in `memories`, which references the journal entry. That avoids
+  embedding the same text twice and gives later record types the same search path.
+- **No task prefixes by default** for `nomic-embed-text`: in a quick comparison on sample
+  entries, unprefixed embeddings separated matches from non-matches better. They are
+  configurable.
 - **Health endpoint returns 200 even when the DB is down**, with `status: "degraded"`,
   so the UI can show what is wrong. `/api/health/live` never touches the database.

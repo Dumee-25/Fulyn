@@ -16,6 +16,7 @@ from app.agent.loop import AgentResult, run_agent
 from app.core.config import get_settings
 from app.models import CaffeineLog, Expense, JournalEntry, MoodLog, SleepLog
 from app.services.conversations import get_or_create_conversation
+from app.services.embeddings import set_embedding_service
 
 TZ = get_settings().tz
 
@@ -41,7 +42,8 @@ class Chat:
 
 
 @pytest.fixture
-def chat(db: Session) -> Chat:
+def chat(db: Session, fake_embeddings) -> Chat:
+    set_embedding_service(None)  # use the configured embedding model too
     return Chat(db)
 
 
@@ -109,3 +111,21 @@ def test_acceptance_conversation(chat: Chat) -> None:
     result = chat.send("What did I do that day?")
     assert "1550" in result.reply.replace(",", "") or "1,550" in result.reply
     assert "maya" in result.reply.lower()
+
+
+def test_memory_questions_use_memory_search(chat: Chat) -> None:
+    chat.send("Had coffee with Sarah at the library, she told me about her internship.")
+    result = chat.send("Show me memories about Sarah.")
+    assert "search_memories" in [a.tool for a in result.actions]
+    assert "internship" in result.reply.lower() or "library" in result.reply.lower()
+
+
+def test_unknown_person_is_not_invented(chat: Chat) -> None:
+    chat.send("Had coffee with Sarah at the library.")
+    result = chat.send("What do I remember about John?")
+    reply = result.reply.lower()
+    assert "sarah" not in reply or "john" in reply
+    assert any(
+        p in reply
+        for p in ("couldn't find", "could not find", "no record", "don't have", "no memories")
+    )

@@ -9,6 +9,7 @@ import {
   MessageCircle,
   Moon,
   Smile,
+  Sparkles,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/journal", label: "Journal", icon: BookOpen },
+  { href: "/memories", label: "Memories", icon: Sparkles },
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/mood", label: "Mood", icon: Smile },
   { href: "/sleep", label: "Sleep", icon: Moon },

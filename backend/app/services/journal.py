@@ -7,13 +7,15 @@ from sqlalchemy.orm import Session
 from app.core.time import today_local
 from app.models.journal import JournalEntry
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
-from app.services import crud
+from app.services import crud, memories
 
 
 def create_journal_entry(db: Session, data: JournalEntryCreate) -> JournalEntry:
     entry = JournalEntry(**data.model_dump(exclude={"entry_date"}))
     entry.entry_date = data.entry_date or today_local()
-    return crud.save(db, entry)
+    crud.save(db, entry)
+    memories.sync_journal_memory(db, entry)
+    return entry
 
 
 def get_journal_entry(db: Session, entry_id: uuid.UUID) -> JournalEntry:
@@ -47,9 +49,12 @@ def list_journal_entries(
 def update_journal_entry(
     db: Session, entry_id: uuid.UUID, data: JournalEntryUpdate
 ) -> JournalEntry:
-    return crud.apply_changes(db, get_journal_entry(db, entry_id), data.changes())
+    entry = crud.apply_changes(db, get_journal_entry(db, entry_id), data.changes())
+    memories.sync_journal_memory(db, entry)
+    return entry
 
 
 def delete_journal_entry(db: Session, entry_id: uuid.UUID) -> None:
     """Linked records keep existing; their journal_entry_id becomes NULL."""
     crud.delete(db, get_journal_entry(db, entry_id))
+    memories.delete_memories_for(db, "journal", entry_id)

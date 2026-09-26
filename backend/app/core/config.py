@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     # Deliberately no default: the model must be chosen in the environment.
     ollama_model: str | None = None
     ollama_timeout_seconds: float = 180.0
+    # Embedding model for semantic memory search (e.g. nomic-embed-text, 768 dimensions).
+    # Unset: memory search falls back to full-text matching only.
+    ollama_embed_model: str | None = None
+    # Optional task prefixes some embedding models expect (e.g. "search_query: ").
+    embed_document_prefix: str = ""
+    embed_query_prefix: str = ""
 
     # Agent loop guards.
     agent_max_tool_iterations: int = Field(default=8, ge=1, le=20)
