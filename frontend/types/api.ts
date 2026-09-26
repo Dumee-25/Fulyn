@@ -190,3 +190,69 @@ export interface SongCount {
   artist: string | null;
   count: number;
 }
+
+export const BILLING_CYCLES = ["weekly", "monthly", "quarterly", "yearly", "custom"] as const;
+export const RECURRENCE_RULES = ["daily", "weekly", "monthly", "yearly"] as const;
+export const DECISION_STATUSES = ["active", "reconsidered", "reversed", "completed"] as const;
+
+export interface Subscription {
+  id: string;
+  name: string;
+  amount: DecimalString;
+  currency: string;
+  billing_cycle: (typeof BILLING_CYCLES)[number];
+  custom_interval_days: number | null;
+  next_billing_date: ISODate | null;
+  category: string;
+  active: boolean;
+  notes: string | null;
+  monthly_cost: DecimalString;
+  next_due: ISODate | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface SubscriptionSummary {
+  active_count: number;
+  totals: { currency: string; monthly_total: DecimalString; yearly_total: DecimalString; count: number }[];
+}
+
+export interface Reminder {
+  id: string;
+  title: string;
+  description: string | null;
+  due_at: ISODateTime;
+  recurrence_rule: string | null;
+  status: "pending" | "completed" | "cancelled";
+  last_completed_at: ISODateTime | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface Decision {
+  id: string;
+  title: string;
+  decision: string;
+  reasoning: string | null;
+  decision_date: ISODate;
+  status: (typeof DECISION_STATUSES)[number];
+  importance_score: number;
+  journal_entry_id: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface WaitingItem {
+  id: string;
+  title: string;
+  description: string | null;
+  waiting_since: ISODate;
+  expected_by: ISODate | null;
+  related_person_id: string | null;
+  related_person_name: string | null;
+  status: "waiting" | "received" | "cancelled" | "expired";
+  resolved_at: ISODate | null;
+  overdue: boolean;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}

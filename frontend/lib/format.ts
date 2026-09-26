@@ -50,3 +50,22 @@ export function formatDayOf(value: ISODateTime): string {
     month: "short",
   });
 }
+
+/** "Mon, 29 Sept, 09:00" in the browser's timezone. */
+export function formatDateTime(value: ISODateTime): string {
+  return new Date(value).toLocaleString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** Whole days from today to a calendar date (negative = past). */
+export function daysUntil(date: ISODate): number {
+  const [y, m, d] = date.split("-").map(Number);
+  const target = new Date(y, m - 1, d).getTime();
+  const [ty, tm, td] = todayISO().split("-").map(Number);
+  return Math.round((target - new Date(ty, tm - 1, td).getTime()) / 86_400_000);
+}

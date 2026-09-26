@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.journal import JournalEntry
 from app.models.memory import Memory
 from app.models.people import MusicMemory, Person, PersonInteraction
+from app.models.planning import Decision
 from app.schemas.memory import MemorySearchResponse, MemorySearchResult, MemoryUpdate
 from app.services import crud
 from app.services.embeddings import EmbeddingUnavailableError, get_embedding_service
@@ -101,6 +102,7 @@ def _propagate_privacy(db: Session, entry: JournalEntry) -> None:
             select(PersonInteraction.id).where(PersonInteraction.journal_entry_id == entry.id),
         ),
         ("music", select(MusicMemory.id).where(MusicMemory.journal_entry_id == entry.id)),
+        ("decision", select(Decision.id).where(Decision.journal_entry_id == entry.id)),
     ]
     for memory_type, ids in linked:
         for memory in db.scalars(
@@ -151,6 +153,24 @@ def sync_music_memory(db: Session, music: MusicMemory) -> Memory:
         memory_date=music.memory_date,
         importance_score=music.importance_score,
         is_private=_journal_is_private(db, music.journal_entry_id),
+    )
+
+
+def sync_decision_memory(db: Session, decision: Decision) -> Memory:
+    parts = [decision.decision]
+    if decision.reasoning:
+        parts.append(f"Why: {decision.reasoning}")
+    if decision.status != "active":
+        parts.append(f"Status: {decision.status}")
+    return upsert_memory(
+        db,
+        memory_type="decision",
+        source_id=decision.id,
+        title=decision.title[:TITLE_MAX],
+        content="\n".join(parts),
+        memory_date=decision.decision_date,
+        importance_score=decision.importance_score,
+        is_private=_journal_is_private(db, decision.journal_entry_id),
     )
 
 
@@ -340,6 +360,7 @@ IMPORTANCE_SOURCES: dict[str, type] = {
     "journal": JournalEntry,
     "person_interaction": PersonInteraction,
     "music": MusicMemory,
+    "decision": Decision,
 }
 
 

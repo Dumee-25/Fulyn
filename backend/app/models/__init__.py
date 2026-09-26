@@ -8,6 +8,7 @@ from app.models.journal import JournalEntry
 from app.models.memory import Memory
 from app.models.mood import MoodLog
 from app.models.people import MusicMemory, Person, PersonInteraction
+from app.models.planning import Decision, Reminder, Subscription, WaitingItem
 from app.models.sleep import SleepLog
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "CaffeineLog",
     "ChatMessage",
     "Conversation",
+    "Decision",
     "Expense",
     "JournalEntry",
     "Memory",
@@ -22,5 +24,8 @@ __all__ = [
     "MusicMemory",
     "Person",
     "PersonInteraction",
+    "Reminder",
     "SleepLog",
+    "Subscription",
+    "WaitingItem",
 ]

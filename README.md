@@ -16,8 +16,9 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 3 | Agent: Ollama client, system prompt, tool registry, agent loop, chat endpoint and page | Done |
 | 4 | Memory: memory table, local embeddings, hybrid semantic + full-text search, importance | Done |
 | 5 | People and music: people, interactions, music memories, linked into memory search | Done |
-| 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Next |
-| 7–10 | people and music, personal management, reports, analytics, vault, export | Planned |
+| 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Done |
+| 7 | Timeline and reports: life timeline, daily and weekly recaps, monthly report | Next |
+| 8–10 | people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
@@ -142,7 +143,8 @@ alembic upgrade head
 
 Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
-journal entries); `0005` adds people, interactions and music memories.
+journal entries); `0005` adds people, interactions and music memories; `0006` adds subscriptions,
+reminders, decisions and waiting items.
 
 ## The agent
 
@@ -226,6 +228,30 @@ finds "Uber home because it was raining".
   memories, and records that came from a private journal entry are private too.
 - Deleting a person deletes their interactions; music memories stay, unlinked.
 
+## Planning
+
+- **Subscriptions** store the price and billing cycle (weekly, monthly, quarterly, yearly or
+  custom every N days). The API derives `monthly_cost` (exact decimals, rounded half-up to
+  cents) and `next_due`, the next billing date on or after today, rolled forward from the
+  stored date. Totals are per currency and never converted. Cancelling sets
+  `active = false` and keeps the record.
+- **Reminders** have a local `due_at`, an optional `recurrence_rule` (daily, weekly,
+  monthly, yearly) and a status. Completing a one-off reminder marks it completed;
+  completing a recurring one moves it to its next occurrence after now, skipping missed
+  ones. There are no push notifications yet: reminders show on the Reminders page and the
+  dashboard. A future notifier only needs `GET /api/reminders?due_before=<now>` (indexed
+  on status and due_at).
+- **Decisions** keep the decision and the reasoning in your words, with a status (active,
+  reconsidered, reversed, completed). They are mirrored into memory search, so "why did I
+  decide not to buy the keyboard?" finds them.
+- **Waiting items** track refunds, deliveries, replies and so on, optionally from a person,
+  with an expected date. Items past their expected date are flagged `overdue` but not
+  changed automatically.
+- **Impulse purchases** use `expenses.is_impulse` and `impulse_reason`. The agent only
+  sets it when you say so, clears it when you say it wasn't, and is told never to judge
+  spending. On the Expenses page, click "impulse" on a row to toggle it; the monthly
+  summary shows impulse spending separately.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -250,6 +276,10 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | `/api/people` | `q` name filter; each has `interaction_count` |
 | `/api/interactions` | `person_id` filter; includes `person_name` |
 | `/api/music` | `q`, `artist`, `person_id`, `emotion`; `GET /top` |
+| `/api/subscriptions` | `active` filter; `GET /summary` (monthly and yearly totals per currency) |
+| `/api/reminders` | `status` (default pending), `due_before`, `q`; `POST /{id}/complete` |
+| `/api/decisions` | `q`, `status`, date range |
+| `/api/waiting` | `status` (default waiting), `q`; setting `status` sets `resolved_at` |
 | `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |

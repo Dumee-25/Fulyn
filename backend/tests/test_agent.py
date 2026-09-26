@@ -221,7 +221,21 @@ class TestTools:
             s["function"]["name"]: s["function"]["parameters"] for s in build_registry().schemas()
         }
         text = json.dumps(schemas)
-        assert "$ref" not in text and '"title"' not in text and '"null"' not in text
+        assert "$ref" not in text and '"null"' not in text
+
+        def metadata_titles(node: Any, in_properties: bool = False) -> int:
+            if isinstance(node, list):
+                return sum(metadata_titles(n) for n in node)
+            if not isinstance(node, dict):
+                return 0
+            own = 0 if in_properties else int("title" in node)
+            return own + sum(metadata_titles(v, k == "properties") for k, v in node.items())
+
+        assert metadata_titles(schemas) == 0
+        # Fields literally named "title" must survive.
+        for tool in ("create_reminder", "create_decision", "create_waiting_item"):
+            assert "title" in schemas[tool]["properties"]
+            assert "title" in schemas[tool]["required"]
         assert "raw_text" not in schemas["create_journal_entry"]["properties"]
         assert "journal_entry_id" not in schemas["create_expense"]["properties"]
         assert schemas["create_expense"]["required"] == ["amount"]

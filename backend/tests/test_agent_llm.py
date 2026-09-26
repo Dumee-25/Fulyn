@@ -16,13 +16,17 @@ from app.agent.loop import AgentResult, run_agent
 from app.core.config import get_settings
 from app.models import (
     CaffeineLog,
+    Decision,
     Expense,
     JournalEntry,
     MoodLog,
     MusicMemory,
     Person,
     PersonInteraction,
+    Reminder,
     SleepLog,
+    Subscription,
+    WaitingItem,
 )
 from app.services.conversations import get_or_create_conversation
 from app.services.embeddings import set_embedding_service
@@ -165,3 +169,38 @@ def test_music_memory(chat: Chat) -> None:
     assert song.person_id == chat.all(Person)[0].id
     result = chat.send("What songs do I connect with Sarah?")
     assert "yellow" in result.reply.lower()
+
+
+def test_decision_recall(chat: Chat) -> None:
+    chat.send("I've decided not to buy the keyboard because I already have one and it's 28k.")
+    (decision,) = chat.all(Decision)
+    assert "28" in (decision.reasoning or "") + decision.decision
+    result = chat.send("Why did I decide not to buy that keyboard?")
+    assert "already have" in result.reply.lower() or "28" in result.reply
+
+
+def test_subscriptions_total(chat: Chat) -> None:
+    chat.send("I pay 2500 a month for Netflix and 12000 a year for iCloud.")
+    assert len(chat.all(Subscription)) == 2
+    assert chat.all(Expense) == []
+    result = chat.send("How much do subscriptions cost me every month?")
+    assert "3,500" in result.reply or "3500" in result.reply
+
+
+def test_waiting_and_reminder(chat: Chat) -> None:
+    chat.send("I'm still waiting for the Daraz refund. Remind me to follow up on Friday.")
+    (item,) = chat.all(WaitingItem)
+    assert "refund" in item.title.lower()
+    (reminder,) = chat.all(Reminder)
+    assert reminder.due_at.astimezone(TZ).weekday() == 4  # Friday
+    result = chat.send("What am I still waiting for?")
+    assert "refund" in result.reply.lower()
+
+
+def test_impulse_purchase(chat: Chat) -> None:
+    chat.send("Bought a 6000 hoodie on a whim, total impulse buy.")
+    (expense,) = chat.all(Expense)
+    assert expense.is_impulse
+    chat.send("Actually don't count that as impulse, I'd planned it.")
+    chat.db.refresh(expense)
+    assert not expense.is_impulse

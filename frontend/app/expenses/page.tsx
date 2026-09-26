@@ -18,6 +18,7 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { apiSend } from "@/lib/api";
 import { formatDate, formatMoney, todayISO } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { Expense, ExpenseSummary } from "@/types/api";
 
 function monthStart(): string {
@@ -56,6 +57,11 @@ export default function ExpensesPage() {
     });
     await reload();
   });
+
+  async function toggleImpulse(expense: Expense) {
+    await apiSend("PATCH", `/expenses/${expense.id}`, { is_impulse: !expense.is_impulse });
+    await reload();
+  }
 
   const s = summary.data;
 
@@ -139,15 +145,23 @@ export default function ExpensesPage() {
           </TableHeader>
           <TableBody>
             {expenses.data.map((e) => (
-              <TableRow key={e.id}>
+              <TableRow key={e.id} className="group/row">
                 <TableCell className="text-muted-foreground">{formatDate(e.expense_date)}</TableCell>
                 <TableCell>
                   {e.merchant ?? e.description ?? "—"}
-                  {e.is_impulse && (
-                    <Badge variant="outline" className="ml-2 font-normal">
-                      impulse
-                    </Badge>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => void toggleImpulse(e)}
+                    title={e.is_impulse ? "Counted as impulse (click to undo)" : "Mark as impulse"}
+                    className={cn(
+                      "ml-2 rounded-full border px-2 py-0.5 text-xs transition-opacity",
+                      e.is_impulse
+                        ? "border-border text-foreground"
+                        : "border-transparent text-muted-foreground opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100",
+                    )}
+                  >
+                    impulse
+                  </button>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{e.category}</TableCell>
                 <TableCell className="text-right font-mono">

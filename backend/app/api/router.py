@@ -9,6 +9,7 @@ from app.api.routes import (
     memories,
     moods,
     people,
+    planning,
     sleep,
 )
 
@@ -25,5 +26,9 @@ for router in (
     people.people_router,
     people.interactions_router,
     people.music_router,
+    planning.subscriptions_router,
+    planning.reminders_router,
+    planning.decisions_router,
+    planning.waiting_router,
 ):
     api_router.include_router(router)

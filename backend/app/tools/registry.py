@@ -135,7 +135,13 @@ def simplify_schema(schema: dict[str, Any]) -> dict[str, Any]:
             return node
         if "$ref" in node:
             return walk(dict(defs[node["$ref"].split("/")[-1]]))
-        node = {k: walk(v) for k, v in node.items() if k != "title"}
+        # "title" is Pydantic metadata, except inside "properties", where it can be a
+        # real field name (e.g. a reminder's title).
+        node = {
+            k: ({name: walk(sub) for name, sub in v.items()} if k == "properties" else walk(v))
+            for k, v in node.items()
+            if k != "title"
+        }
         if "anyOf" in node:
             options = [o for o in node["anyOf"] if o.get("type") != "null"]
             if len(options) == 1:
