@@ -40,21 +40,21 @@ class DateRangeArgs(ToolArgs):
     limit: Limit = 20
 
 
-def _dump(read_model: type[ReadModel], record: Any) -> dict[str, Any]:
+def dump_record(read_model: type[ReadModel], record: Any) -> dict[str, Any]:
     return read_model.model_validate(record).model_dump(exclude={"created_at", "updated_at"})
 
 
-def _dump_many(read_model: type[ReadModel], records: list[Any]) -> dict[str, Any]:
-    return {"count": len(records), "records": [_dump(read_model, r) for r in records]}
+def dump_records(read_model: type[ReadModel], records: list[Any]) -> dict[str, Any]:
+    return {"count": len(records), "records": [dump_record(read_model, r) for r in records]}
 
 
-def _link(ctx: ToolContext, data: BaseModel) -> None:
+def link_to_turn(ctx: ToolContext, data: BaseModel) -> None:
     """Attach this turn's journal entry when the model did not give one."""
     if getattr(data, "journal_entry_id", None) is None and ctx.journal_entry_id:
         data.journal_entry_id = ctx.journal_entry_id
 
 
-def _create_tool(
+def create_tool(
     name: str,
     description: str,
     create_model_cls: type[BaseModel],
@@ -70,16 +70,16 @@ def _create_tool(
     )
 
     def handler(ctx: ToolContext, args: BaseModel) -> dict[str, Any]:
-        _link(ctx, args)
+        link_to_turn(ctx, args)
         data = create_model_cls.model_validate(args.model_dump())
         record = service_fn(ctx.db, data)
         ctx.created.append((orm_model, record.id))
-        return {"record": _dump(read_model, record)}
+        return {"record": dump_record(read_model, record)}
 
     return Tool(name, description, args_model, handler)
 
 
-def _update_tool(
+def update_tool(
     name: str,
     description: str,
     update_model: type[PatchModel],
@@ -99,12 +99,12 @@ def _update_tool(
         if not changes:
             return {"record": None, "note": "no fields to change"}
         record = service_fn(ctx.db, record_id, update_model.model_validate(changes))
-        return {"record": _dump(read_model, record)}
+        return {"record": dump_record(read_model, record)}
 
     return Tool(name, description, args_model, handler)
 
 
-def _delete_tool(
+def delete_tool(
     name: str, description: str, id_field: str, service_fn: Callable[[Any, uuid.UUID], None]
 ) -> Tool:
     args_model = create_model(
@@ -137,13 +137,13 @@ def create_journal_entry(ctx: ToolContext, args: CreateJournalEntryArgs) -> dict
     if ctx.journal_entry_id is not None:
         # One journal entry per message.
         existing = journal.get_journal_entry(ctx.db, ctx.journal_entry_id)
-        return {"record": _dump(JournalEntryRead, existing), "note": "already created"}
+        return {"record": dump_record(JournalEntryRead, existing), "note": "already created"}
     entry = journal.create_journal_entry(
         ctx.db, JournalEntryCreate(raw_text=ctx.user_message, **args.model_dump())
     )
     ctx.journal_entry_id = entry.id
     ctx.created.append((JournalEntry, entry.id))
-    return {"record": _dump(JournalEntryRead, entry)}
+    return {"record": dump_record(JournalEntryRead, entry)}
 
 
 class SearchJournalArgs(DateRangeArgs):
@@ -161,7 +161,7 @@ def search_journal_entries(ctx: ToolContext, args: SearchJournalArgs) -> dict[st
         date_to=args.date_to,
         limit=args.limit,
     )
-    return _dump_many(JournalEntryRead, records)
+    return dump_records(JournalEntryRead, records)
 
 
 class UpdateJournalArgs(PatchModel):
@@ -182,7 +182,7 @@ def update_journal_entry(ctx: ToolContext, args: UpdateJournalArgs) -> dict[str,
     entry = journal.update_journal_entry(
         ctx.db, entry_id, JournalEntryUpdate.model_validate(changes)
     )
-    return {"record": _dump(JournalEntryRead, entry)}
+    return {"record": dump_record(JournalEntryRead, entry)}
 
 
 # --- Expenses ----------------------------------------------------------------
@@ -195,7 +195,7 @@ class GetExpensesArgs(DateRangeArgs):
 
 
 def get_expenses(ctx: ToolContext, args: GetExpensesArgs) -> dict[str, Any]:
-    return _dump_many(ExpenseRead, expenses.list_expenses(ctx.db, **args.model_dump()))
+    return dump_records(ExpenseRead, expenses.list_expenses(ctx.db, **args.model_dump()))
 
 
 class SummarizeExpensesArgs(ToolArgs):
@@ -211,11 +211,11 @@ def summarize_expenses(ctx: ToolContext, args: SummarizeExpensesArgs) -> dict[st
 # --- Simple list tools -------------------------------------------------------
 
 
-def _list_tool(
+def list_tool(
     name: str, description: str, list_fn: Callable[..., list[Any]], read_model: type[ReadModel]
 ) -> Tool:
     def handler(ctx: ToolContext, args: DateRangeArgs) -> dict[str, Any]:
-        return _dump_many(read_model, list_fn(ctx.db, **args.model_dump()))
+        return dump_records(read_model, list_fn(ctx.db, **args.model_dump()))
 
     return Tool(name, description, DateRangeArgs, handler)
 
@@ -242,13 +242,13 @@ def life_logging_tools() -> list[Tool]:
             UpdateJournalArgs,
             update_journal_entry,
         ),
-        _delete_tool(
+        delete_tool(
             "delete_journal_entry",
             "Delete a journal entry. Only when the user explicitly asks.",
             "journal_entry_id",
             journal.delete_journal_entry,
         ),
-        _create_tool(
+        create_tool(
             "create_expense",
             "Record money the user spent. Amount in the home currency unless stated.",
             ExpenseCreate,
@@ -269,7 +269,7 @@ def life_logging_tools() -> list[Tool]:
             SummarizeExpensesArgs,
             summarize_expenses,
         ),
-        _update_tool(
+        update_tool(
             "update_expense",
             "Correct an existing expense. Send only the fields that change.",
             ExpenseUpdate,
@@ -277,8 +277,8 @@ def life_logging_tools() -> list[Tool]:
             expenses.update_expense,
             ExpenseRead,
         ),
-        _delete_tool("delete_expense", "Delete an expense.", "expense_id", expenses.delete_expense),
-        _create_tool(
+        delete_tool("delete_expense", "Delete an expense.", "expense_id", expenses.delete_expense),
+        create_tool(
             "create_mood_log",
             "Record mood (score 1-10 and/or label) and energy (1-10). Only log mood the "
             "user expressed; do not diagnose.",
@@ -287,10 +287,10 @@ def life_logging_tools() -> list[Tool]:
             MoodLogRead,
             MoodLog,
         ),
-        _list_tool(
+        list_tool(
             "get_mood_logs", "List mood logs, newest first.", moods.list_mood_logs, MoodLogRead
         ),
-        _update_tool(
+        update_tool(
             "update_mood_log",
             "Correct a mood log.",
             MoodLogUpdate,
@@ -298,8 +298,8 @@ def life_logging_tools() -> list[Tool]:
             moods.update_mood_log,
             MoodLogRead,
         ),
-        _delete_tool("delete_mood_log", "Delete a mood log.", "mood_log_id", moods.delete_mood_log),
-        _create_tool(
+        delete_tool("delete_mood_log", "Delete a mood log.", "mood_log_id", moods.delete_mood_log),
+        create_tool(
             "create_sleep_log",
             "Record sleep. Give sleep_time/wake_time as local ISO datetimes when known, or "
             "only duration_minutes. Set is_approximate for estimates like 'around 2'.",
@@ -308,13 +308,13 @@ def life_logging_tools() -> list[Tool]:
             SleepLogRead,
             SleepLog,
         ),
-        _list_tool(
+        list_tool(
             "get_sleep_logs",
             "List sleep logs by wake-up date, newest first.",
             sleep.list_sleep_logs,
             SleepLogRead,
         ),
-        _update_tool(
+        update_tool(
             "update_sleep_log",
             "Correct a sleep log.",
             SleepLogUpdate,
@@ -322,10 +322,10 @@ def life_logging_tools() -> list[Tool]:
             sleep.update_sleep_log,
             SleepLogRead,
         ),
-        _delete_tool(
+        delete_tool(
             "delete_sleep_log", "Delete a sleep log.", "sleep_log_id", sleep.delete_sleep_log
         ),
-        _create_tool(
+        create_tool(
             "create_caffeine_log",
             "Record a caffeinated drink. consumed_at is a local ISO datetime; omit it if "
             "no time was given. Leave estimated_caffeine_mg empty unless stated.",
@@ -334,13 +334,13 @@ def life_logging_tools() -> list[Tool]:
             CaffeineLogRead,
             CaffeineLog,
         ),
-        _list_tool(
+        list_tool(
             "get_caffeine_logs",
             "List caffeine logs, newest first.",
             caffeine.list_caffeine_logs,
             CaffeineLogRead,
         ),
-        _update_tool(
+        update_tool(
             "update_caffeine_log",
             "Correct a caffeine log.",
             CaffeineLogUpdate,
@@ -348,7 +348,7 @@ def life_logging_tools() -> list[Tool]:
             caffeine.update_caffeine_log,
             CaffeineLogRead,
         ),
-        _delete_tool(
+        delete_tool(
             "delete_caffeine_log",
             "Delete a caffeine log.",
             "caffeine_log_id",

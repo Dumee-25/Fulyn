@@ -14,7 +14,16 @@ from sqlalchemy.orm import Session
 from app.agent.llm import get_llm
 from app.agent.loop import AgentResult, run_agent
 from app.core.config import get_settings
-from app.models import CaffeineLog, Expense, JournalEntry, MoodLog, SleepLog
+from app.models import (
+    CaffeineLog,
+    Expense,
+    JournalEntry,
+    MoodLog,
+    MusicMemory,
+    Person,
+    PersonInteraction,
+    SleepLog,
+)
 from app.services.conversations import get_or_create_conversation
 from app.services.embeddings import set_embedding_service
 
@@ -70,7 +79,7 @@ def test_admits_missing_records(chat: Chat) -> None:
 
 
 def test_acceptance_conversation(chat: Chat) -> None:
-    """Spec section 47, for the parts built so far (people and events come later)."""
+    """Spec section 47, for the parts built so far (life events come later)."""
     message = (
         "Slept around 2 last night and woke at 7. Had an iced latte at 10. Went to Barista "
         "with Maya after uni and spent 1450. Pretty nice day honestly."
@@ -96,7 +105,12 @@ def test_acceptance_conversation(chat: Chat) -> None:
     (mood,) = chat.all(MoodLog)
     assert (mood.score or 0) >= 6 or mood.label in ("good", "great", "calm")
 
-    for record in (sleep, coffee, expense, mood):
+    (maya,) = chat.all(Person)
+    assert maya.name == "Maya"
+    (interaction,) = chat.all(PersonInteraction)
+    assert interaction.person_id == maya.id
+
+    for record in (sleep, coffee, expense, mood, interaction):
         assert record.journal_entry_id == entry.id
 
     chat.send("Actually the Barista bill was 1550.")
@@ -129,3 +143,25 @@ def test_unknown_person_is_not_invented(chat: Chat) -> None:
         p in reply
         for p in ("couldn't find", "could not find", "no record", "don't have", "no memories")
     )
+
+
+def test_last_seen(chat: Chat) -> None:
+    chat.send("Yesterday I had lunch with Alex at the canteen.")
+    (alex,) = chat.all(Person)
+    assert alex.last_interaction_at is not None
+    result = chat.send("When did I last see Alex?")
+    day = alex.last_interaction_at
+    assert "get_person_interactions" in [a.tool for a in result.actions] or "yesterday" in (
+        result.reply.lower()
+    )
+    assert str(day.day) in result.reply or "yesterday" in result.reply.lower()
+
+
+def test_music_memory(chat: Chat) -> None:
+    chat.send("Yellow by Coldplay always reminds me of the drive home with Sarah.")
+    (song,) = chat.all(MusicMemory)
+    assert song.song.lower() == "yellow"
+    assert (song.artist or "").lower() == "coldplay"
+    assert song.person_id == chat.all(Person)[0].id
+    result = chat.send("What songs do I connect with Sarah?")
+    assert "yellow" in result.reply.lower()

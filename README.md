@@ -15,8 +15,9 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 2 | Core life logging: journal, expenses, mood, sleep, caffeine (models, CRUD API, pages) | Done |
 | 3 | Agent: Ollama client, system prompt, tool registry, agent loop, chat endpoint and page | Done |
 | 4 | Memory: memory table, local embeddings, hybrid semantic + full-text search, importance | Done |
-| 5 | People and music: people, interactions, music memories, semantic linking | Next |
-| 6–10 | people and music, personal management, reports, analytics, vault, export | Planned |
+| 5 | People and music: people, interactions, music memories, linked into memory search | Done |
+| 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Next |
+| 7–10 | people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
@@ -141,7 +142,7 @@ alembic upgrade head
 
 Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
-journal entries).
+journal entries); `0005` adds people, interactions and music memories.
 
 ## The agent
 
@@ -204,6 +205,27 @@ finds "Uber home because it was raining".
 - Private entries are never returned by memory listing, search, `GET /api/memories/{id}`
   or the agent's search tool. Vault search comes in Phase 9.
 
+## People and music
+
+- **People** hold only what you have said: name, nickname, relationship (only if stated),
+  notes. `first_mentioned_at` and `last_interaction_at` are kept up to date from
+  interactions. People are listed alphabetically and never scored or ranked.
+- **Name matching:** the agent passes names as you said them. The backend matches an exact
+  name or nickname first, then a first name ("Sarah" → "Sarah Perera"), and creates the
+  person if nobody matches. If several people match, the tool returns the candidates and
+  the agent asks which one you mean.
+- **Interactions** store a summary, place, date, importance and `raw_context`, which is
+  always your own message verbatim (the model cannot write it). One interaction per
+  person, so "met Maya and Alex" creates two.
+- **Music memories** link a song to a date, feeling, text and optionally a person.
+  `GET /api/music/top` (and the agent's music search with a date range) returns the
+  most-mentioned songs, e.g. "what songs defined September?".
+- **Semantic linking:** interactions and music memories are mirrored into `memories`
+  (titles like "With Maya" and "Yellow by Coldplay", contents include the person's name),
+  so memory search finds them next to journal entries. Renaming a person refreshes those
+  memories, and records that came from a private journal entry are private too.
+- Deleting a person deletes their interactions; music memories stay, unlinked.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -225,6 +247,9 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | --- | --- |
 | `POST /api/chat` | `{message, conversation_id?}` → `{conversation_id, reply, actions}` |
 | `/api/chat/conversations` | list; `GET /{id}/messages` returns the transcript |
+| `/api/people` | `q` name filter; each has `interaction_count` |
+| `/api/interactions` | `person_id` filter; includes `person_name` |
+| `/api/music` | `q`, `artist`, `person_id`, `emotion`; `GET /top` |
 | `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |
@@ -283,6 +308,8 @@ All settings come from environment variables (see `.env.example`):
 - **Expense categories** are stored as text and validated against `EXPENSE_CATEGORIES`
   (case-insensitive), so the list can change without a migration. Un-marking an impulse
   purchase clears its `impulse_reason`.
+- **People dates are dates.** `first_mentioned_at` / `last_interaction_at` keep the spec's
+  names but are calendar dates, since interactions are logged per day.
 - **Deleting a journal entry keeps linked records**; their `journal_entry_id` becomes `NULL`.
 - **One semantic index.** The spec lists an `embedding` column on journal entries; instead
   all embeddings live in `memories`, which references the journal entry. That avoids

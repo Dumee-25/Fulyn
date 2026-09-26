@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.journal import JournalEntry
 from app.models.memory import Memory
+from app.models.people import MusicMemory, Person, PersonInteraction
 from app.schemas.memory import MemorySearchResponse, MemorySearchResult, MemoryUpdate
 from app.services import crud
 from app.services.embeddings import EmbeddingUnavailableError, get_embedding_service
@@ -37,21 +38,30 @@ def _title_from(text: str) -> str:
     return first_line[: TITLE_MAX - 1] + "…" if len(first_line) > TITLE_MAX else first_line
 
 
-def sync_journal_memory(db: Session, entry: JournalEntry) -> Memory:
-    """Create or refresh the memory mirroring a journal entry, then try to embed it."""
+def upsert_memory(
+    db: Session,
+    *,
+    memory_type: str,
+    source_id: uuid.UUID,
+    title: str | None,
+    content: str,
+    memory_date: date,
+    importance_score: int,
+    is_private: bool,
+) -> Memory:
+    """Create or refresh the memory for a source record, re-embedding if its text changed."""
     memory = db.scalar(
-        select(Memory).where(Memory.memory_type == "journal", Memory.source_id == entry.id)
+        select(Memory).where(Memory.memory_type == memory_type, Memory.source_id == source_id)
     )
-    title = entry.ai_summary or _title_from(entry.raw_text)
     if memory is None:
-        memory = Memory(memory_type="journal", source_id=entry.id, content=entry.raw_text)
+        memory = Memory(memory_type=memory_type, source_id=source_id, content=content)
         db.add(memory)
-    text_changed = memory.content != entry.raw_text or memory.title != title
+    text_changed = memory.content != content or memory.title != title or memory.id is None
     memory.title = title
-    memory.content = entry.raw_text
-    memory.memory_date = entry.entry_date
-    memory.importance_score = entry.importance_score
-    memory.is_private = entry.is_private
+    memory.content = content
+    memory.memory_date = memory_date
+    memory.importance_score = importance_score
+    memory.is_private = is_private
     if text_changed:
         memory.embedding = None
         memory.embedding_model = None
@@ -59,6 +69,89 @@ def sync_journal_memory(db: Session, entry: JournalEntry) -> Memory:
     if memory.embedding is None:
         embed_memories(db, [memory])
     return memory
+
+
+def _journal_is_private(db: Session, journal_entry_id: uuid.UUID | None) -> bool:
+    if journal_entry_id is None:
+        return False
+    entry = db.get(JournalEntry, journal_entry_id)
+    return bool(entry and entry.is_private)
+
+
+def sync_journal_memory(db: Session, entry: JournalEntry) -> Memory:
+    memory = upsert_memory(
+        db,
+        memory_type="journal",
+        source_id=entry.id,
+        title=entry.ai_summary or _title_from(entry.raw_text),
+        content=entry.raw_text,
+        memory_date=entry.entry_date,
+        importance_score=entry.importance_score,
+        is_private=entry.is_private,
+    )
+    _propagate_privacy(db, entry)
+    return memory
+
+
+def _propagate_privacy(db: Session, entry: JournalEntry) -> None:
+    """Records that came from a private journal entry are private too."""
+    linked = [
+        (
+            "person_interaction",
+            select(PersonInteraction.id).where(PersonInteraction.journal_entry_id == entry.id),
+        ),
+        ("music", select(MusicMemory.id).where(MusicMemory.journal_entry_id == entry.id)),
+    ]
+    for memory_type, ids in linked:
+        for memory in db.scalars(
+            select(Memory).where(Memory.memory_type == memory_type, Memory.source_id.in_(ids))
+        ):
+            memory.is_private = entry.is_private
+    db.commit()
+
+
+def sync_interaction_memory(db: Session, interaction: PersonInteraction) -> Memory:
+    person = db.get(Person, interaction.person_id)
+    name = person.name if person else "someone"
+    parts = [interaction.summary]
+    if interaction.location:
+        parts.append(f"Location: {interaction.location}")
+    if interaction.raw_context and interaction.raw_context != interaction.summary:
+        parts.append(interaction.raw_context)
+    return upsert_memory(
+        db,
+        memory_type="person_interaction",
+        source_id=interaction.id,
+        title=f"With {name}",
+        content="\n".join(parts),
+        memory_date=interaction.interaction_date,
+        importance_score=interaction.importance_score,
+        is_private=_journal_is_private(db, interaction.journal_entry_id),
+    )
+
+
+def sync_music_memory(db: Session, music: MusicMemory) -> Memory:
+    person = db.get(Person, music.person_id) if music.person_id else None
+    title = music.song + (f" by {music.artist}" if music.artist else "")
+    parts = [title]
+    if music.album:
+        parts.append(f"Album: {music.album}")
+    if music.memory_text:
+        parts.append(music.memory_text)
+    if music.emotion:
+        parts.append(f"Feeling: {music.emotion}")
+    if person:
+        parts.append(f"Connected to {person.name}")
+    return upsert_memory(
+        db,
+        memory_type="music",
+        source_id=music.id,
+        title=title[:TITLE_MAX],
+        content="\n".join(parts),
+        memory_date=music.memory_date,
+        importance_score=music.importance_score,
+        is_private=_journal_is_private(db, music.journal_entry_id),
+    )
 
 
 def delete_memories_for(db: Session, memory_type: str, source_id: uuid.UUID) -> None:
@@ -242,15 +335,23 @@ def search_memories(
 
 # --- Changes ---------------------------------------------------------------------
 
+# Memory types whose source record carries its own importance_score.
+IMPORTANCE_SOURCES: dict[str, type] = {
+    "journal": JournalEntry,
+    "person_interaction": PersonInteraction,
+    "music": MusicMemory,
+}
+
 
 def update_memory(db: Session, memory_id: uuid.UUID, data: MemoryUpdate) -> Memory:
     """Importance is kept in step with the source record."""
     memory = get_memory(db, memory_id)
     changes = data.changes()
-    if "importance_score" in changes and memory.memory_type == "journal" and memory.source_id:
-        entry = db.get(JournalEntry, memory.source_id)
-        if entry is not None:
-            entry.importance_score = changes["importance_score"]
+    source_model = IMPORTANCE_SOURCES.get(memory.memory_type)
+    if "importance_score" in changes and source_model and memory.source_id:
+        source = db.get(source_model, memory.source_id)
+        if source is not None:
+            source.importance_score = changes["importance_score"]
     if "title" in changes and changes["title"] != memory.title:
         memory.embedding = None
         memory.embedding_model = None

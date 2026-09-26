@@ -125,3 +125,68 @@ export interface MemorySearchResponse {
   semantic: boolean;
   results: MemorySearchResult[];
 }
+
+export const RELATIONSHIP_TYPES = [
+  "friend",
+  "crush",
+  "mentor",
+  "lecturer",
+  "family",
+  "colleague",
+  "acquaintance",
+  "other",
+] as const;
+
+export interface Person {
+  id: string;
+  name: string;
+  nickname: string | null;
+  relationship_type: string | null;
+  notes: string | null;
+  first_mentioned_at: ISODate;
+  last_interaction_at: ISODate | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface PersonSummary extends Person {
+  interaction_count: number;
+}
+
+export interface Interaction {
+  id: string;
+  person_id: string;
+  person_name: string;
+  interaction_date: ISODate;
+  summary: string;
+  raw_context: string | null;
+  location: string | null;
+  mood_before: string | null;
+  mood_after: string | null;
+  importance_score: number;
+  journal_entry_id: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface MusicMemory {
+  id: string;
+  song: string;
+  artist: string | null;
+  album: string | null;
+  memory_text: string | null;
+  emotion: string | null;
+  memory_date: ISODate;
+  person_id: string | null;
+  person_name: string | null;
+  importance_score: number;
+  journal_entry_id: string | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface SongCount {
+  song: string;
+  artist: string | null;
+  count: number;
+}

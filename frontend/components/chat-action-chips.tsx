@@ -7,10 +7,14 @@ const LABELS: Record<string, string> = {
   create_mood_log: "mood",
   create_sleep_log: "sleep",
   create_caffeine_log: "caffeine",
+  create_person: "person",
+  create_person_interaction: "interaction",
+  create_music_memory: "music",
 };
 
 function label(tool: string): string | null {
   if (tool in LABELS) return `+ ${LABELS[tool]}`;
+  if (tool === "set_memory_importance") return "importance changed";
   const [verb, ...rest] = tool.split("_");
   const noun = rest.join(" ").replace(/ log$/, "").replace(/ entry$/, "");
   if (verb === "update") return `edited ${noun}`;

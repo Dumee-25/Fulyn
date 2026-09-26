@@ -7,6 +7,7 @@ from app.models.expense import Expense
 from app.models.journal import JournalEntry
 from app.models.memory import Memory
 from app.models.mood import MoodLog
+from app.models.people import MusicMemory, Person, PersonInteraction
 from app.models.sleep import SleepLog
 
 __all__ = [
@@ -18,5 +19,8 @@ __all__ = [
     "JournalEntry",
     "Memory",
     "MoodLog",
+    "MusicMemory",
+    "Person",
+    "PersonInteraction",
     "SleepLog",
 ]
