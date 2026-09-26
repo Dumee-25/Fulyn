@@ -81,3 +81,23 @@ export interface CaffeineLog extends Timestamps {
   quantity: DecimalString;
   journal_entry_id: string | null;
 }
+
+export interface ChatAction {
+  tool: string;
+  ok: boolean;
+  record_id: string | null;
+  error: string | null;
+}
+
+export interface ChatResponse {
+  conversation_id: string;
+  reply: string;
+  actions: ChatAction[];
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  actions: ChatAction[];
+  created_at: ISODateTime;
+}

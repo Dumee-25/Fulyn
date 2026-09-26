@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["llm: calls the real Ollama model (opt-in with RUN_LLM_TESTS=1)"]
 
 [tool.ruff]
 line-length = 100

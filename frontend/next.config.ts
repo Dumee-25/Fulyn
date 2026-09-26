@@ -5,6 +5,10 @@ import type { NextConfig } from "next";
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // Agent turns can take a while (several model calls); the default is 30s.
+    proxyTimeout: 300_000,
+  },
   async rewrites() {
     return [
       {

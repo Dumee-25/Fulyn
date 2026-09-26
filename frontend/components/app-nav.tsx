@@ -6,6 +6,7 @@ import {
   BookOpen,
   Coffee,
   LayoutDashboard,
+  MessageCircle,
   Moon,
   Smile,
   Wallet,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/journal", label: "Journal", icon: BookOpen },
   { href: "/expenses", label: "Expenses", icon: Wallet },
   { href: "/mood", label: "Mood", icon: Smile },

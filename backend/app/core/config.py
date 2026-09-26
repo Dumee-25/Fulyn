@@ -23,9 +23,15 @@ class Settings(BaseSettings):
         description="SQLAlchemy URL. Must use the psycopg (v3) driver.",
     )
 
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_base_url: str = "http://127.0.0.1:11434"
     # Deliberately no default: the model must be chosen in the environment.
     ollama_model: str | None = None
+    ollama_timeout_seconds: float = 180.0
+
+    # Agent loop guards.
+    agent_max_tool_iterations: int = Field(default=8, ge=1, le=20)
+    # Recent chat messages (user, assistant and tool) sent back to the model as context.
+    agent_history_messages: int = Field(default=30, ge=0, le=200)
 
     default_timezone: str = "Asia/Colombo"
     default_currency: str = "LKR"

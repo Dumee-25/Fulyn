@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.agent.llm import LLMUnavailableError
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.errors import DomainError, NotFoundError
@@ -28,6 +29,10 @@ def create_app() -> FastAPI:
     @app.exception_handler(NotFoundError)
     async def not_found(request: Request, exc: NotFoundError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(LLMUnavailableError)
+    async def llm_unavailable(request: Request, exc: LLMUnavailableError) -> JSONResponse:
+        return JSONResponse(status_code=503, content={"detail": str(exc)})
 
     @app.exception_handler(DomainError)
     async def domain_error(request: Request, exc: DomainError) -> JSONResponse:

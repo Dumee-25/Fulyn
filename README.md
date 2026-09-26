@@ -13,14 +13,15 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | --- | --- | --- |
 | 1 | Foundation: repo layout, FastAPI, PostgreSQL + pgvector, SQLAlchemy, Alembic, Next.js, Tailwind, shadcn/ui, Docker Compose, config, health check | Done |
 | 2 | Core life logging: journal, expenses, mood, sleep, caffeine (models, CRUD API, pages) | Done |
-| 3 | Agent: Ollama, system prompt, tool registry, agent loop, chat endpoint | Next |
-| 4–10 | Agent, memory, people and music, personal management, reports, analytics, vault, export | Planned |
+| 3 | Agent: Ollama client, system prompt, tool registry, agent loop, chat endpoint and page | Done |
+| 4 | Memory: pgvector embeddings, semantic search, memory table, importance | Next |
+| 5–10 | People and music, people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.x, Pydantic v2, Alembic, psycopg 3
 - **Database:** PostgreSQL 17 with pgvector
-- **AI (from Phase 3):** Ollama, configured through `OLLAMA_BASE_URL` and `OLLAMA_MODEL`
+- **AI:** Ollama, configured through `OLLAMA_BASE_URL` and `OLLAMA_MODEL`
 - **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui
 
 ## Layout
@@ -29,13 +30,13 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 backend/
   app/
     api/        # routers (thin: no domain logic)
-    agent/      # agent loop and prompts (Phase 3)
+    agent/      # Ollama client, system prompt, agent loop
     core/       # settings, logging, time helpers, domain errors
     db/         # engine, session, declarative base and mixins, dev seed
     models/     # ORM models (import them in models/__init__.py for Alembic)
     schemas/    # Pydantic request/response schemas
     services/   # domain logic
-    tools/      # agent tool definitions (Phase 3)
+    tools/      # tool registry and the tools the agent may call
     reports/    # recaps and reports (Phase 7)
     exports/    # data export (Phase 10)
   alembic/      # migrations
@@ -114,6 +115,13 @@ The Next.js server proxies every `/api/*` request to `BACKEND_URL`
 cd backend && pytest && ruff check . && ruff format --check .
 ```
 
+Agent tests use a scripted fake model, so they are fast and deterministic. Tests against
+the real configured model are opt-in:
+
+```bash
+cd backend && RUN_LLM_TESTS=1 pytest -m llm
+```
+
 API tests use a separate database (`<db>_test`, or `TEST_DATABASE_URL`) that is created
 automatically; each test runs in a rolled-back transaction. If PostgreSQL is not running,
 those tests are skipped.
@@ -130,7 +138,46 @@ alembic revision --autogenerate -m "describe change"
 alembic upgrade head
 ```
 
-Revision `0001` enables the `vector` extension; `0002` adds the core logging tables.
+Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
+`0003` adds chat conversations.
+
+## The agent
+
+Open http://localhost:3000/chat and write naturally, for example:
+
+> Slept around 2 last night and woke at 7. Had an iced latte at 10. Went to Barista with
+> Maya after uni and spent 1450. Pretty nice day honestly.
+
+Fulyn saves the message as a journal entry and creates the sleep, caffeine, expense and
+mood records it describes, all linked to that entry. Corrections work in the same
+conversation ("Actually the Barista bill was 1550", "Make that evening a core memory").
+
+How it works (`backend/app/agent/loop.py`):
+
+1. Load the recent conversation (`AGENT_HISTORY_MESSAGES`) and build the system prompt with
+   the current local time, timezone, currency and categories.
+2. Send it to Ollama with the tool schemas (`OLLAMA_MODEL`, native tool calling).
+3. Validate each tool call against its Pydantic model and run the matching service.
+   Invalid arguments and errors go back to the model as tool results so it can retry.
+4. Repeat until the model answers without tool calls, at most `AGENT_MAX_TOOL_ITERATIONS`
+   (default 8) rounds.
+
+Guarantees enforced in code rather than left to the prompt:
+
+- The model never writes SQL; it can only call the registered tools (`app/tools/`).
+- `create_journal_entry` takes no text argument. It always stores the user's message
+  verbatim, so the model cannot paraphrase or replace it. Updates cannot change it either.
+- Every record created in a turn is linked to that turn's journal entry. If the model
+  logs something but forgets the journal entry, the backend saves the message itself.
+- Journal search tools never return private entries.
+- Tool results show times in local time, so the model does not have to convert from UTC.
+
+Chat transcripts (including tool calls) are stored in `conversations` and
+`chat_messages` so later messages can refer back to earlier records.
+
+**Privacy note:** the model sees your messages. With a local model nothing leaves your
+machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
+Ollama's hosted service.
 
 ## Sample data
 
@@ -147,6 +194,8 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 
 | Resource | Extra |
 | --- | --- |
+| `POST /api/chat` | `{message, conversation_id?}` → `{conversation_id, reply, actions}` |
+| `/api/chat/conversations` | list; `GET /{id}/messages` returns the transcript |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |
 | `/api/moods` | |
@@ -165,8 +214,11 @@ All settings come from environment variables (see `.env.example`):
 | `DEFAULT_TIMEZONE` | `Asia/Colombo` | Used to interpret "today", "last night" and similar |
 | `DEFAULT_CURRENCY` | `LKR` | ISO 4217 code for amounts |
 | `EXPENSE_CATEGORIES` | Food, Cafe, Transport, … Other | JSON list of allowed categories |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
 | `OLLAMA_MODEL` | none | Model name. No default on purpose: set it explicitly |
+| `OLLAMA_TIMEOUT_SECONDS` | `180` | Per model call |
+| `AGENT_MAX_TOOL_ITERATIONS` | `8` | Model rounds per message |
+| `AGENT_HISTORY_MESSAGES` | `30` | Earlier chat messages sent as context |
 | `BACKEND_URL` | `http://localhost:8000` | Where the frontend proxies `/api/*` |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed origins for direct API calls |
 
