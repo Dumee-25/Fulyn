@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.routes import (
+    analytics,
     caffeine,
     chat,
     expenses,
@@ -34,5 +35,6 @@ for router in (
     reports.events_router,
     reports.timeline_router,
     reports.reports_router,
+    analytics.router,
 ):
     api_router.include_router(router)

@@ -1,5 +1,6 @@
 """Every tool the agent may call."""
 
+from app.tools.analytics import analytics_tools
 from app.tools.life_logging import life_logging_tools
 from app.tools.memory import MEMORY_TOOLS
 from app.tools.people import people_tools
@@ -16,6 +17,7 @@ def build_registry() -> ToolRegistry:
         *people_tools(),
         *planning_tools(),
         *report_tools(),
+        *analytics_tools(),
     ]:
         registry.register(tool)
     return registry

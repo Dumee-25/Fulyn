@@ -18,8 +18,9 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 5 | People and music: people, interactions, music memories, linked into memory search | Done |
 | 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Done |
 | 7 | Timeline and reports: life events, life timeline, daily and weekly recaps, monthly report | Done |
-| 8 | Analytics: dashboard charts and cross-domain analytics | Next |
-| 9–10 | people and music, personal management, reports, analytics, vault, export | Planned |
+| 8 | Analytics: dashboard charts and cross-domain analytics | Done |
+| 9 | Private vault: isolated storage and search, vault page, agent restrictions | Next |
+| 10 | people and music, personal management, reports, analytics, vault, export | Planned |
 
 ## Stack
 
@@ -126,6 +127,12 @@ model are opt-in (they depend on the model, so an occasional run can differ):
 ```bash
 cd backend && RUN_LLM_TESTS=1 pytest -m llm
 ```
+
+They use `TEST_OLLAMA_MODEL` (default `llama3.2`, local). Small local models struggle to
+drive this many tools reliably; with `llama3.2` most of these tests fail because the model
+calls the wrong tool or invents arguments (which the backend rejects), not because of the
+code. The suite passed on `nemotron-3-ultra:cloud` through Phase 7
+(`TEST_OLLAMA_MODEL=nemotron-3-ultra:cloud`).
 
 API tests use a separate database (`<db>_test`, or `TEST_DATABASE_URL`) that is created
 automatically; each test runs in a rolled-back transaction. If PostgreSQL is not running,
@@ -279,6 +286,26 @@ finds "Uber home because it was raining".
   excluded from the timeline, every report, and the data the model sees for reports.
 - People in reports are listed alphabetically with interaction counts, never ranked.
 
+## Analytics
+
+- **Dashboard** (`/`): today's tiles, reminders and waiting items, then month spending
+  (total, impulse, subscriptions, per-day bars, categories), 30-day mood and energy, sleep,
+  caffeine per day and by hour, recent people, important and core memories, and recent
+  decisions. One request: `GET /api/analytics/dashboard`. Private data is excluded.
+- **Cross-domain comparisons** (`GET /api/analytics/compare`, agent tool `compare_life`)
+  compare a metric (`spending`, `mood`, `energy`, `sleep_minutes`, `caffeine_drinks`)
+  between two groups of days or weeks: `went_out` (saw someone or had a life event),
+  `saw_person`, `weekend`, `impulse_purchase`, or a median split (`more_sleep`,
+  `more_caffeine`, `better_mood`, `more_spending`). Results give both averages, the group
+  sizes, a caveat that this shows coincidence not cause, and flag groups under 3 days/weeks
+  as anecdotal. "Songs in positive memories" has its own endpoint and tool.
+- Conventions (in `app/reports/series.py`): only days where something was logged count;
+  spending and caffeine are 0 on logged days without any; a day's sleep is the night
+  before it.
+- Charts follow a validated palette (colour-blind separation and contrast checked for
+  both themes), thin marks, a hover tooltip on every chart, and a legend whenever there
+  are two series.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -312,6 +339,9 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | `/api/reports/daily` | `GET ?date=` stored recap; `POST {date}` generate |
 | `/api/reports/weekly` | `GET ?date=` (any day of the week); `POST {date}` |
 | `/api/reports/monthly` | `GET ?year=&month=`; `POST {year, month}` |
+| `/api/analytics/dashboard` | `days` window (default 30) |
+| `/api/analytics/compare` | `metric`, `group_by`, `granularity`, `person_name`, date range |
+| `/api/analytics/positive-songs` | date range |
 | `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
 | `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |

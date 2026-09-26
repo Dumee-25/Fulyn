@@ -30,8 +30,9 @@ export function formatTime(value: ISODateTime, approximate = false): string {
 
 export function formatDuration(minutes: number | null, approximate = false): string {
   if (minutes === null) return "—";
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  const total = Math.round(minutes);
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return `${approximate ? "~" : ""}${h}h${m ? ` ${m}m` : ""}`;
 }
 
@@ -68,4 +69,9 @@ export function daysUntil(date: ISODate): number {
   const target = new Date(y, m - 1, d).getTime();
   const [ty, tm, td] = todayISO().split("-").map(Number);
   return Math.round((target - new Date(ty, tm - 1, td).getTime()) / 86_400_000);
+}
+
+/** Axis labels: 950, 1.2k, 28k. */
+export function compactNumber(value: number): string {
+  return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
 }

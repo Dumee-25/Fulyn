@@ -223,3 +223,30 @@ def test_daily_recap_is_grounded(chat: Chat) -> None:
     reply = result.reply.replace(",", "")
     assert "1200" in reply
     assert "maya" in result.reply.lower()
+
+
+def test_cross_domain_spending(chat: Chat) -> None:
+    from datetime import timedelta
+
+    from app.core.time import today_local
+    from app.schemas.expense import ExpenseCreate
+    from app.schemas.people import InteractionCreate, PersonCreate
+    from app.services import expenses, people
+
+    maya = people.create_person(chat.db, PersonCreate(name="Maya"))
+    today = today_local()
+    for offset in range(1, 15):
+        day = today - timedelta(days=offset)
+        out = offset % 3 == 0
+        expenses.create_expense(
+            chat.db, ExpenseCreate(amount="3000" if out else "500", expense_date=day)
+        )
+        if out:
+            people.create_interaction(
+                chat.db,
+                InteractionCreate(person_id=maya.id, summary="Dinner", interaction_date=day),
+            )
+    result = chat.send("How much do I usually spend on days I go out compared to other days?")
+    assert "compare_life" in [a.tool for a in result.actions]
+    reply = result.reply.replace(",", "")
+    assert "3000" in reply and "500" in reply
