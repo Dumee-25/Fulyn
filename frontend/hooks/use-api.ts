@@ -51,5 +51,18 @@ export function useApi<T>(path: string, query?: Query): ApiResource<T> {
     };
   }, [path, queryKey]);
 
+  // Refetch when something (e.g. the quick-chat box) reports changed data.
+  useEffect(() => {
+    const onChange = () => void load();
+    window.addEventListener(DATA_CHANGED, onChange);
+    return () => window.removeEventListener(DATA_CHANGED, onChange);
+  }, [load]);
+
   return { data, error, loading, reload: load };
+}
+
+export const DATA_CHANGED = "fulyn:data-changed";
+
+export function announceDataChanged() {
+  window.dispatchEvent(new Event(DATA_CHANGED));
 }

@@ -35,6 +35,8 @@ class ToolContext:
     created: list[tuple[type, uuid.UUID]] = field(default_factory=list)
     # The model, for tools that write report prose. None in contexts without one.
     llm: Any = None
+    # Set by vault tools: the whole turn is then kept out of future model context.
+    vault_accessed: bool = False
 
 
 Handler = Callable[[ToolContext, Any], Any]

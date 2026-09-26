@@ -23,6 +23,9 @@ function label(tool: string): string | null {
   if (tool === "complete_reminder") return "reminder done";
   if (tool === "resolve_waiting_item") return "resolved";
   if (tool.startsWith("generate_")) return "report saved";
+  if (tool === "move_to_vault") return "moved to vault";
+  if (tool === "export_data") return "export links";
+  if (tool === "remove_from_vault") return "moved out of vault";
   const [verb, ...rest] = tool.split("_");
   const noun = rest.join(" ").replace(/ log$/, "").replace(/ entry$/, "");
   if (verb === "update") return `edited ${noun}`;

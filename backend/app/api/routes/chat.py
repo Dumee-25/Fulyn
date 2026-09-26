@@ -27,3 +27,14 @@ def list_conversations(db: DbSession):
 @router.get("/conversations/{conversation_id}/messages", response_model=list[ChatMessageRead])
 def get_messages(db: DbSession, conversation_id: uuid.UUID):
     return service.transcript(db, conversation_id)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(db: DbSession, conversation_id: uuid.UUID) -> None:
+    conversations.delete_conversation(db, conversation_id)
+
+
+@router.delete("/conversations", status_code=204)
+def delete_all_conversations(db: DbSession) -> None:
+    """Delete all chat history. Journal entries and records are kept."""
+    conversations.delete_all(db)

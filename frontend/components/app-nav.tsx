@@ -10,11 +10,13 @@ import {
   FileText,
   Hourglass,
   LayoutDashboard,
+  Lock,
   MessageCircle,
   Moon,
   Music,
   Repeat,
   Scale,
+  Settings,
   Smile,
   Sparkles,
   Users,
@@ -44,6 +46,7 @@ const GROUPS: { label: string | null; links: NavLink[] }[] = [
       { href: "/people", label: "People", icon: Users },
       { href: "/music", label: "Music", icon: Music },
       { href: "/decisions", label: "Decisions", icon: Scale },
+      { href: "/vault", label: "Vault", icon: Lock },
     ],
   },
   {
@@ -62,6 +65,10 @@ const GROUPS: { label: string | null; links: NavLink[] }[] = [
       { href: "/waiting", label: "Waiting for", icon: Hourglass },
       { href: "/subscriptions", label: "Subscriptions", icon: Repeat },
     ],
+  },
+  {
+    label: null,
+    links: [{ href: "/settings", label: "Settings", icon: Settings }],
   },
 ];
 

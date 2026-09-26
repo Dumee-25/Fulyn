@@ -9,6 +9,7 @@ from app.core.time import now_local
 from app.models.caffeine import CaffeineLog
 from app.schemas.caffeine import CaffeineLogCreate, CaffeineLogUpdate
 from app.services import crud
+from app.vault.filters import not_private
 
 
 def create_caffeine_log(db: Session, data: CaffeineLogCreate) -> CaffeineLog:
@@ -41,7 +42,7 @@ def list_caffeine_logs(
     offset: int = 0,
 ) -> list[CaffeineLog]:
     """Dates are local calendar days."""
-    stmt = select(CaffeineLog)
+    stmt = select(CaffeineLog).where(not_private(CaffeineLog))
     if date_from is not None:
         stmt = stmt.where(CaffeineLog.consumed_at >= _local_midnight(date_from))
     if date_to is not None:

@@ -63,7 +63,8 @@ def recent_history(db: Session, conversation_id: uuid.UUID, limit: int) -> list[
         return []
     stmt = (
         select(ChatMessage)
-        .where(ChatMessage.conversation_id == conversation_id)
+        # Vault turns are never sent back to the model.
+        .where(ChatMessage.conversation_id == conversation_id, ChatMessage.is_private.is_(False))
         .order_by(ChatMessage.created_at.desc())
         .limit(limit)
     )
@@ -81,3 +82,19 @@ def to_llm_message(message: ChatMessage) -> dict[str, Any]:
     if message.tool_name:
         out["tool_name"] = message.tool_name
     return out
+
+
+def mark_private(db: Session, message_ids: list[uuid.UUID]) -> None:
+    for message in db.scalars(select(ChatMessage).where(ChatMessage.id.in_(message_ids))):
+        message.is_private = True
+    db.commit()
+
+
+def delete_conversation(db: Session, conversation_id: uuid.UUID) -> None:
+    crud.delete(db, crud.get_or_raise(db, Conversation, conversation_id))
+
+
+def delete_all(db: Session) -> None:
+    for conversation in db.scalars(select(Conversation)):
+        db.delete(conversation)
+    db.commit()

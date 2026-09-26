@@ -29,6 +29,14 @@ export default function JournalPage() {
     await entries.reload();
   });
 
+  async function moveToVault(id: string) {
+    if (!window.confirm("Move this entry and everything logged with it to the private vault?")) {
+      return;
+    }
+    await apiSend("PUT", `/vault/entries/${id}`);
+    await entries.reload();
+  }
+
   return (
     <Page>
       <PageHeader title="Journal" description="Your own words, stored exactly as written." />
@@ -76,8 +84,17 @@ export default function JournalPage() {
               {entry.importance_score >= 3 && (
                 <Badge variant="secondary">{IMPORTANCE_LABELS[entry.importance_score]}</Badge>
               )}
-              {entry.is_private && <Lock className="size-3" aria-label="Private" />}
-              <span className="ml-auto">
+              <span className="ml-auto flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Move to vault"
+                  title="Move to vault"
+                  className="text-muted-foreground"
+                  onClick={() => void moveToVault(entry.id)}
+                >
+                  <Lock />
+                </Button>
                 <DeleteButton path={`/journal/${entry.id}`} onDeleted={entries.reload} />
               </span>
             </div>

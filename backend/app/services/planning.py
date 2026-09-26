@@ -27,6 +27,7 @@ from app.schemas.planning import (
     WaitingUpdate,
 )
 from app.services import crud, memories
+from app.vault.filters import not_private
 
 # --- Subscriptions -----------------------------------------------------------------
 
@@ -177,7 +178,7 @@ def list_decisions(
     limit: int = 100,
     offset: int = 0,
 ) -> list[Decision]:
-    stmt = select(Decision)
+    stmt = select(Decision).where(not_private(Decision))
     if query:
         like = f"%{query.strip()}%"
         stmt = stmt.where(

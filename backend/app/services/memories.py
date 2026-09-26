@@ -257,10 +257,10 @@ def _filtered(
     date_to: date | None,
     min_importance: int | None,
     memory_type: str | None,
-    include_private: bool,
+    private: bool,
 ) -> Select[Any]:
-    if not include_private:
-        stmt = stmt.where(Memory.is_private.is_(False))
+    # Normal and vault searches never mix: private=True returns vault memories only.
+    stmt = stmt.where(Memory.is_private.is_(private))
     stmt = crud.date_range(stmt, Memory.memory_date, date_from, date_to)
     if min_importance is not None:
         stmt = stmt.where(Memory.importance_score >= min_importance)
@@ -276,7 +276,7 @@ def list_memories(
     date_to: date | None = None,
     min_importance: int | None = None,
     memory_type: str | None = None,
-    include_private: bool = False,
+    private: bool = False,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Memory]:
@@ -287,7 +287,7 @@ def list_memories(
         date_to=date_to,
         min_importance=min_importance,
         memory_type=memory_type,
-        include_private=include_private,
+        private=private,
     ).order_by(Memory.importance_score.desc(), Memory.memory_date.desc())
     return crud.paginate(db, stmt, limit, offset)
 
@@ -306,7 +306,7 @@ def search_memories(
     date_to: date | None = None,
     min_importance: int | None = None,
     memory_type: str | None = None,
-    include_private: bool = False,
+    private: bool = False,
     limit: int = 10,
 ) -> MemorySearchResponse:
     filters = {
@@ -314,7 +314,7 @@ def search_memories(
         "date_to": date_to,
         "min_importance": min_importance,
         "memory_type": memory_type,
-        "include_private": include_private,
+        "private": private,
     }
 
     # Full-text candidates.

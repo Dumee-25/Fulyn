@@ -10,6 +10,7 @@ from app.core.time import today_local
 from app.models.sleep import SleepLog
 from app.schemas.sleep import SleepLogCreate, SleepLogUpdate
 from app.services import crud
+from app.vault.filters import not_private
 
 
 class InvalidSleepTimesError(DomainError):
@@ -50,7 +51,9 @@ def list_sleep_logs(
     limit: int = 100,
     offset: int = 0,
 ) -> list[SleepLog]:
-    stmt = crud.date_range(select(SleepLog), SleepLog.sleep_date, date_from, date_to)
+    stmt = crud.date_range(
+        select(SleepLog).where(not_private(SleepLog)), SleepLog.sleep_date, date_from, date_to
+    )
     stmt = stmt.order_by(SleepLog.sleep_date.desc(), SleepLog.created_at.desc())
     return crud.paginate(db, stmt, limit, offset)
 

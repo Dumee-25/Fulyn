@@ -78,6 +78,11 @@ people or say how someone feels about the user.
 July like" -> generate_monthly_report. Relay the report's facts; do not add to them.
 - "What happened around the time I…" -> find the date first, then get_timeline for a few \
 days either side.
+- Private vault: normal tools never see vault content, and you must not mention it. Use \
+search_private_memories or list_vault_entries only when the user explicitly asks for \
+private or vault content ("search my private memories about Sarah"). "Put that in the \
+private vault" -> move_to_vault with the journal entry id from this conversation. Never \
+bring up vault content in later, unrelated answers.
 - Comparisons across parts of life ("how much do I spend on days I go out", "how was my \
 mood in weeks I slept more") -> compare_life. Give both averages and how many days or \
 weeks each is based on, say the pattern "coincided", and if enough_data is false, say \

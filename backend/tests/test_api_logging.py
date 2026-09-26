@@ -35,8 +35,9 @@ class TestJournal:
         default = [e["raw_text"] for e in api.get("/api/journal").json()]
         assert default == ["public"]
 
-        explicit = api.get("/api/journal", params={"include_private": True}).json()
-        assert {e["raw_text"] for e in explicit} == {"public", "secret"}
+        # The journal API has no way to read private entries; only /api/vault does.
+        vault = api.get("/api/vault/entries").json()
+        assert [e["raw_text"] for e in vault] == ["secret"]
 
     def test_text_search(self, api: TestClient) -> None:
         _create(api, "/api/journal", {"raw_text": "Coffee with Sarah"})

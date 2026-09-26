@@ -5,6 +5,7 @@ from app.api.routes import (
     caffeine,
     chat,
     expenses,
+    exports,
     health,
     journal,
     memories,
@@ -13,6 +14,7 @@ from app.api.routes import (
     planning,
     reports,
     sleep,
+    vault,
 )
 
 api_router = APIRouter(prefix="/api")
@@ -36,5 +38,8 @@ for router in (
     reports.timeline_router,
     reports.reports_router,
     analytics.router,
+    vault.router,
+    exports.exports_router,
+    exports.settings_router,
 ):
     api_router.include_router(router)

@@ -57,9 +57,11 @@ class Chat:
 
 @pytest.fixture
 def chat(db: Session, fake_embeddings, monkeypatch: pytest.MonkeyPatch) -> Chat:
-    # Tests run against a local model by default; override with TEST_OLLAMA_MODEL.
+    # Override the model with TEST_OLLAMA_MODEL.
     monkeypatch.setattr(
-        get_settings(), "ollama_model", os.environ.get("TEST_OLLAMA_MODEL", "llama3.2")
+        get_settings(),
+        "ollama_model",
+        os.environ.get("TEST_OLLAMA_MODEL", "nemotron-3-ultra:cloud"),
     )
     set_embedding_service(None)  # use the configured embedding model too
     return Chat(db)
@@ -250,3 +252,31 @@ def test_cross_domain_spending(chat: Chat) -> None:
     assert "compare_life" in [a.tool for a in result.actions]
     reply = result.reply.replace(",", "")
     assert "3000" in reply and "500" in reply
+
+
+def _private_gift(chat: Chat) -> None:
+    from app.schemas.journal import JournalEntryCreate
+    from app.services import journal
+
+    journal.create_journal_entry(
+        chat.db,
+        JournalEntryCreate(
+            raw_text="Bought Sarah a surprise gift for her birthday.", is_private=True
+        ),
+    )
+    journal.create_journal_entry(chat.db, JournalEntryCreate(raw_text="Had lunch with Sarah."))
+
+
+def test_normal_memory_search_excludes_vault(chat: Chat) -> None:
+    _private_gift(chat)
+    result = chat.send("Show me memories about Sarah.")
+    tools_used = [a.tool for a in result.actions]
+    assert "search_private_memories" not in tools_used
+    assert "gift" not in result.reply.lower()
+
+
+def test_private_search_when_asked(chat: Chat) -> None:
+    _private_gift(chat)
+    result = chat.send("Search my private memories about Sarah.")
+    assert "search_private_memories" in [a.tool for a in result.actions]
+    assert "gift" in result.reply.lower()

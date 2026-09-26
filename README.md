@@ -19,8 +19,8 @@ The full design lives in [`Personal Life Agent — Build Specification.md`](./Pe
 | 6 | Personal management: subscriptions, reminders, decisions, waiting items, impulse purchases | Done |
 | 7 | Timeline and reports: life events, life timeline, daily and weekly recaps, monthly report | Done |
 | 8 | Analytics: dashboard charts and cross-domain analytics | Done |
-| 9 | Private vault: isolated storage and search, vault page, agent restrictions | Next |
-| 10 | people and music, personal management, reports, analytics, vault, export | Planned |
+| 9 | Private vault: isolation everywhere, vault search and page, code-enforced agent restrictions | Done |
+| 10 | Export (ZIP, JSON, CSV, Markdown journal, separate vault export), settings, quick chat, polish | Done |
 
 ## Stack
 
@@ -42,8 +42,9 @@ backend/
     schemas/    # Pydantic request/response schemas
     services/   # domain logic
     tools/      # tool registry and the tools the agent may call
-    reports/    # recaps and reports (Phase 7)
-    exports/    # data export (Phase 10)
+    reports/    # report data, rendering, narrative, day series for analytics
+    exports/    # ZIP / JSON / CSV export
+    vault/      # the only code that reads private content
   alembic/      # migrations
   tests/
 frontend/
@@ -128,11 +129,10 @@ model are opt-in (they depend on the model, so an occasional run can differ):
 cd backend && RUN_LLM_TESTS=1 pytest -m llm
 ```
 
-They use `TEST_OLLAMA_MODEL` (default `llama3.2`, local). Small local models struggle to
-drive this many tools reliably; with `llama3.2` most of these tests fail because the model
-calls the wrong tool or invents arguments (which the backend rejects), not because of the
-code. The suite passed on `nemotron-3-ultra:cloud` through Phase 7
-(`TEST_OLLAMA_MODEL=nemotron-3-ultra:cloud`).
+They use `TEST_OLLAMA_MODEL` (default `nemotron-3-ultra:cloud`). Small local models
+cannot drive this many tools reliably: `llama3.2` failed most of these tests by calling the
+wrong tool or inventing arguments (which the backend rejects). Don't run them at the same
+time as the normal suite; both use the test database.
 
 API tests use a separate database (`<db>_test`, or `TEST_DATABASE_URL`) that is created
 automatically; each test runs in a rolled-back transaction. If PostgreSQL is not running,
@@ -153,7 +153,8 @@ alembic upgrade head
 Revision `0001` enables the `vector` extension; `0002` adds the core logging tables;
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
 journal entries); `0005` adds people, interactions and music memories; `0006` adds subscriptions,
-reminders, decisions and waiting items; `0007` adds life events and stored reports.
+reminders, decisions and waiting items; `0007` adds life events and stored reports; `0008`
+marks private chat turns.
 
 ## The agent
 
@@ -306,6 +307,49 @@ finds "Uber home because it was raining".
   both themes), thin marks, a hover tooltip on every chart, and a legend whenever there
   are two series.
 
+## Private vault
+
+Privacy is set per journal entry. Everything written in a private entry, or logged from it
+(expenses, moods, sleep, caffeine, interactions, music, decisions, events and their
+memories), is vault content.
+
+- **Isolation.** Vault content is excluded from every normal list, search, summary, report,
+  the timeline, the dashboard and the analytics. `GET /api/journal/{id}` and
+  `GET /api/memories/{id}` return 404 for private records. It is readable only through
+  `app/vault` and `/api/vault`; keeping reads in one place is what makes adding encryption
+  later a local change. Normal and vault searches never mix: vault search returns vault
+  memories only.
+- **The agent** has `search_private_memories`, `list_vault_entries`, `move_to_vault` and
+  `remove_from_vault`. They refuse, in code, unless your current message explicitly
+  mentions the vault or private content ("search my private memories about Sarah"), so the
+  model cannot open the vault on its own.
+- **Chat history.** A turn that uses the vault is marked private and is never sent to the
+  model again as history. Moving an entry to the vault also marks the chat turn where you
+  first wrote it, so it stops being sent to the model too (the journal text is your
+  message verbatim, so the turn is found exactly). You can delete chat history in Settings.
+- **UI.** The Vault page loads nothing until you open it, and has search and "move out of
+  vault". Journal entries have a lock button to move them in.
+- Private content is never logged. Database-level encryption is not enabled.
+
+## Export and settings
+
+- **Settings** (`/settings`) shows the current configuration (read from `.env`), export
+  downloads, chat-history deletion and system status.
+- **Everything (ZIP)** (`GET /api/export/zip`): `journal/` with one Markdown file per day,
+  CSVs for expenses, moods, sleep, caffeine, people, interactions, music memories,
+  subscriptions, reminders, decisions, waiting items and life events, `memories.json` and
+  `conversations.json`. Money stays exact; times are local; embeddings are left out.
+- **Everything (JSON)** (`GET /api/export/json`) and **Expenses (CSV)**
+  (`GET /api/export/expenses.csv`).
+- **Private vault (ZIP)** (`GET /api/export/vault.zip`) is a separate, explicit download.
+  None of the other exports contain vault content.
+- The agent's `export_data` tool points you to these downloads.
+
+## Quick chat
+
+A "Tell Fulyn" box sits in the corner of every page and continues the same conversation as
+the Chat page. After it logs something, the lists and charts on the current page refresh.
+
 **Privacy note:** the model sees your messages. With a local model nothing leaves your
 machine; a `:cloud` model (such as `nemotron-3-ultra:cloud`) sends conversations to
 Ollama's hosted service.
@@ -326,7 +370,7 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | Resource | Extra |
 | --- | --- |
 | `POST /api/chat` | `{message, conversation_id?}` → `{conversation_id, reply, actions}` |
-| `/api/chat/conversations` | list; `GET /{id}/messages` returns the transcript |
+| `/api/chat/conversations` | list; `GET /{id}/messages` transcript; `DELETE /{id}`; `DELETE` all |
 | `/api/people` | `q` name filter; each has `interaction_count` |
 | `/api/interactions` | `person_id` filter; includes `person_name` |
 | `/api/music` | `q`, `artist`, `person_id`, `emotion`; `GET /top` |
@@ -342,8 +386,11 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | `/api/analytics/dashboard` | `days` window (default 30) |
 | `/api/analytics/compare` | `metric`, `group_by`, `granularity`, `person_name`, date range |
 | `/api/analytics/positive-songs` | date range |
+| `/api/vault` | summary; `/entries` (list, `GET /{id}`, `PUT /{id}` move in, `DELETE /{id}` move out), `/search?q=` |
+| `/api/export` | `/zip`, `/json`, `/expenses.csv`, `/vault.zip` |
+| `/api/settings` | current configuration, no secrets |
 | `/api/memories` | list (`min_importance`, `memory_type`), `GET /search?q=`, `PATCH /{id}` (importance), `POST /backfill` |
-| `/api/journal` | `q` text search, `min_importance`, `include_private` (private entries are hidden unless set) |
+| `/api/journal` | `q` text search, `min_importance`; private entries only via `/api/vault` |
 | `/api/expenses` | `category`, `merchant`, `is_impulse`; `GET /summary`, `GET /categories` |
 | `/api/moods` | |
 | `/api/sleep` | |

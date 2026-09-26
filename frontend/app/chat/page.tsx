@@ -7,7 +7,7 @@ import { ChatActionChips } from "@/components/chat-action-chips";
 import { ErrorText } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { apiGet, apiSend } from "@/lib/api";
+import { ApiError, apiGet, apiSend } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, ChatResponse } from "@/types/api";
 
@@ -85,10 +85,16 @@ export default function ChatPage() {
     const now = new Date().toISOString();
     setMessages((m) => [...m, { role: "user", content: text, actions: [], created_at: now }]);
     try {
-      const res = await apiSend<ChatResponse>("POST", "/chat", {
-        message: text,
-        conversation_id: conversationId ?? undefined,
-      });
+      const post = (id?: string) =>
+        apiSend<ChatResponse>("POST", "/chat", { message: text, conversation_id: id });
+      let res: ChatResponse;
+      try {
+        res = await post(conversationId ?? undefined);
+      } catch (e) {
+        // The conversation was deleted elsewhere (e.g. in Settings): start a new one.
+        if (!(conversationId && e instanceof ApiError && e.status === 404)) throw e;
+        res = await post(undefined);
+      }
       setConversationId(res.conversation_id);
       storeId(res.conversation_id);
       setMessages((m) => [

@@ -8,6 +8,7 @@ from app.core.time import today_local
 from app.models.mood import MoodLog
 from app.schemas.mood import MoodLogCreate, MoodLogUpdate
 from app.services import crud
+from app.vault.filters import not_private
 
 
 def create_mood_log(db: Session, data: MoodLogCreate) -> MoodLog:
@@ -29,7 +30,9 @@ def list_mood_logs(
     limit: int = 100,
     offset: int = 0,
 ) -> list[MoodLog]:
-    stmt = crud.date_range(select(MoodLog), MoodLog.date, date_from, date_to)
+    stmt = crud.date_range(
+        select(MoodLog).where(not_private(MoodLog)), MoodLog.date, date_from, date_to
+    )
     stmt = stmt.order_by(MoodLog.date.desc(), MoodLog.created_at.desc())
     return crud.paginate(db, stmt, limit, offset)
 

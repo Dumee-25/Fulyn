@@ -8,6 +8,7 @@ from app.core.time import today_local
 from app.models.report import LifeEvent
 from app.schemas.report import LifeEventCreate, LifeEventUpdate
 from app.services import crud, memories
+from app.vault.filters import not_private
 
 
 def create_life_event(db: Session, data: LifeEventCreate) -> LifeEvent:
@@ -34,7 +35,7 @@ def list_life_events(
     limit: int = 100,
     offset: int = 0,
 ) -> list[LifeEvent]:
-    stmt = select(LifeEvent)
+    stmt = select(LifeEvent).where(not_private(LifeEvent))
     if query:
         like = f"%{query.strip()}%"
         stmt = stmt.where(or_(LifeEvent.title.ilike(like), LifeEvent.description.ilike(like)))

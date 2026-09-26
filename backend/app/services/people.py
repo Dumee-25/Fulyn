@@ -28,6 +28,7 @@ from app.schemas.people import (
     SongCount,
 )
 from app.services import crud, memories
+from app.vault.filters import not_private
 
 
 class AmbiguousPersonError(DomainError):
@@ -98,6 +99,7 @@ def list_people(
     """Alphabetical, with interaction counts. No ranking of people."""
     counts = (
         select(PersonInteraction.person_id, func.count().label("n"))
+        .where(not_private(PersonInteraction))
         .group_by(PersonInteraction.person_id)
         .subquery()
     )
@@ -196,8 +198,10 @@ def list_interactions(
     limit: int = 100,
     offset: int = 0,
 ) -> list[InteractionWithPerson]:
-    stmt = select(PersonInteraction, Person.name).join(
-        Person, Person.id == PersonInteraction.person_id
+    stmt = (
+        select(PersonInteraction, Person.name)
+        .join(Person, Person.id == PersonInteraction.person_id)
+        .where(not_private(PersonInteraction))
     )
     if person_id is not None:
         stmt = stmt.where(PersonInteraction.person_id == person_id)
@@ -269,7 +273,11 @@ def list_music(
     limit: int = 100,
     offset: int = 0,
 ) -> list[MusicWithPerson]:
-    stmt = select(MusicMemory, Person.name).outerjoin(Person, Person.id == MusicMemory.person_id)
+    stmt = (
+        select(MusicMemory, Person.name)
+        .outerjoin(Person, Person.id == MusicMemory.person_id)
+        .where(not_private(MusicMemory))
+    )
     if query:
         like = f"%{query.strip()}%"
         stmt = stmt.where(
@@ -299,8 +307,10 @@ def top_songs(
     db: Session, *, date_from: date | None = None, date_to: date | None = None, limit: int = 10
 ) -> list[SongCount]:
     """Most-mentioned songs in a range, for "what songs defined September?"."""
-    stmt = select(MusicMemory.song, MusicMemory.artist, func.count().label("n")).group_by(
-        MusicMemory.song, MusicMemory.artist
+    stmt = (
+        select(MusicMemory.song, MusicMemory.artist, func.count().label("n"))
+        .where(not_private(MusicMemory))
+        .group_by(MusicMemory.song, MusicMemory.artist)
     )
     stmt = crud.date_range(stmt, MusicMemory.memory_date, date_from, date_to)
     stmt = stmt.order_by(func.count().desc(), MusicMemory.song).limit(limit)

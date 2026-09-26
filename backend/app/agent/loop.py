@@ -60,7 +60,7 @@ def run_agent(
     tools = registry.schemas()
 
     history = conversations.recent_history(db, conversation.id, settings.agent_history_messages)
-    conversations.add_message(db, conversation, "user", user_message)
+    turn = [conversations.add_message(db, conversation, "user", user_message).id]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": build_system_prompt(now_local())},
         *history,
@@ -81,8 +81,10 @@ def run_agent(
         if raw_calls:
             assistant["tool_calls"] = raw_calls
         messages.append(assistant)
-        conversations.add_message(
-            db, conversation, "assistant", response.content, tool_calls=raw_calls or None
+        turn.append(
+            conversations.add_message(
+                db, conversation, "assistant", response.content, tool_calls=raw_calls or None
+            ).id
         )
 
         if not response.tool_calls:
@@ -102,11 +104,15 @@ def run_agent(
             )
             content = result.to_message_content()
             messages.append({"role": "tool", "content": content, "tool_name": call.name})
-            conversations.add_message(db, conversation, "tool", content, tool_name=call.name)
+            turn.append(
+                conversations.add_message(db, conversation, "tool", content, tool_name=call.name).id
+            )
     else:
         logger.warning("Agent hit the tool iteration limit")
-        conversations.add_message(db, conversation, "assistant", reply)
+        turn.append(conversations.add_message(db, conversation, "assistant", reply).id)
 
     finalize_turn(ctx)
+    if ctx.vault_accessed:
+        conversations.mark_private(db, turn)
     db.commit()
     return AgentResult(reply=reply, actions=actions)

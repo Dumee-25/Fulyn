@@ -10,6 +10,7 @@ from app.core.time import today_local
 from app.models.expense import Expense
 from app.schemas.expense import CategoryTotal, ExpenseCreate, ExpenseSummary, ExpenseUpdate
 from app.services import crud
+from app.vault.filters import not_private
 
 ZERO = Decimal("0.00")
 
@@ -37,7 +38,9 @@ def list_expenses(
     limit: int = 100,
     offset: int = 0,
 ) -> list[Expense]:
-    stmt = crud.date_range(select(Expense), Expense.expense_date, date_from, date_to)
+    stmt = crud.date_range(
+        select(Expense).where(not_private(Expense)), Expense.expense_date, date_from, date_to
+    )
     if category:
         stmt = stmt.where(func.lower(Expense.category) == category.lower())
     if merchant:
@@ -77,7 +80,7 @@ def summarize_expenses(
             ),
             func.count(),
         )
-        .where(Expense.currency == currency)
+        .where(Expense.currency == currency, not_private(Expense))
         .group_by(Expense.category)
         .order_by(func.sum(Expense.amount).desc())
     )

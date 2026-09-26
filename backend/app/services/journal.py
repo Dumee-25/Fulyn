@@ -29,14 +29,12 @@ def list_journal_entries(
     date_to: date | None = None,
     query: str | None = None,
     min_importance: int | None = None,
-    include_private: bool = False,
+    private: bool = False,
     limit: int = 100,
     offset: int = 0,
 ) -> list[JournalEntry]:
-    """Private entries are excluded unless explicitly requested."""
-    stmt = select(JournalEntry)
-    if not include_private:
-        stmt = stmt.where(JournalEntry.is_private.is_(False))
+    """Public entries, or with private=True vault entries only (used by app.vault)."""
+    stmt = select(JournalEntry).where(JournalEntry.is_private.is_(private))
     stmt = crud.date_range(stmt, JournalEntry.entry_date, date_from, date_to)
     if query:
         stmt = stmt.where(JournalEntry.raw_text.ilike(f"%{query}%"))
