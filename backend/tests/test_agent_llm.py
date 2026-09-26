@@ -56,7 +56,11 @@ class Chat:
 
 
 @pytest.fixture
-def chat(db: Session, fake_embeddings) -> Chat:
+def chat(db: Session, fake_embeddings, monkeypatch: pytest.MonkeyPatch) -> Chat:
+    # Tests run against a local model by default; override with TEST_OLLAMA_MODEL.
+    monkeypatch.setattr(
+        get_settings(), "ollama_model", os.environ.get("TEST_OLLAMA_MODEL", "llama3.2")
+    )
     set_embedding_service(None)  # use the configured embedding model too
     return Chat(db)
 
