@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     database_url: str = Field(
-        default="postgresql+psycopg://fulyn:fulyn@localhost:5432/fulyn",
+        default="postgresql+psycopg://fulyn:fulyn@127.0.0.1:5432/fulyn",
         description="SQLAlchemy URL. Must use the psycopg (v3) driver.",
     )
 
@@ -29,6 +29,19 @@ class Settings(BaseSettings):
 
     default_timezone: str = "Asia/Colombo"
     default_currency: str = "LKR"
+    expense_categories: list[str] = [
+        "Food",
+        "Cafe",
+        "Transport",
+        "Shopping",
+        "Entertainment",
+        "Subscription",
+        "Education",
+        "Health",
+        "Bills",
+        "Technology",
+        "Other",
+    ]
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

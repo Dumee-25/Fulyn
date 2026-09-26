@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.core.errors import DomainError, NotFoundError
 from app.core.logging import configure_logging
 from app.core.version import __version__
 
@@ -23,6 +24,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(NotFoundError)
+    async def not_found(request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(DomainError)
+    async def domain_error(request: Request, exc: DomainError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(Exception)
     async def sanitized_error(request: Request, exc: Exception) -> JSONResponse:

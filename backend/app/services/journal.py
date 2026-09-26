@@ -1,0 +1,55 @@
+import uuid
+from datetime import date
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.time import today_local
+from app.models.journal import JournalEntry
+from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
+from app.services import crud
+
+
+def create_journal_entry(db: Session, data: JournalEntryCreate) -> JournalEntry:
+    entry = JournalEntry(**data.model_dump(exclude={"entry_date"}))
+    entry.entry_date = data.entry_date or today_local()
+    return crud.save(db, entry)
+
+
+def get_journal_entry(db: Session, entry_id: uuid.UUID) -> JournalEntry:
+    return crud.get_or_raise(db, JournalEntry, entry_id)
+
+
+def list_journal_entries(
+    db: Session,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    query: str | None = None,
+    min_importance: int | None = None,
+    include_private: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[JournalEntry]:
+    """Private entries are excluded unless explicitly requested."""
+    stmt = select(JournalEntry)
+    if not include_private:
+        stmt = stmt.where(JournalEntry.is_private.is_(False))
+    stmt = crud.date_range(stmt, JournalEntry.entry_date, date_from, date_to)
+    if query:
+        stmt = stmt.where(JournalEntry.raw_text.ilike(f"%{query}%"))
+    if min_importance is not None:
+        stmt = stmt.where(JournalEntry.importance_score >= min_importance)
+    stmt = stmt.order_by(JournalEntry.entry_date.desc(), JournalEntry.created_at.desc())
+    return crud.paginate(db, stmt, limit, offset)
+
+
+def update_journal_entry(
+    db: Session, entry_id: uuid.UUID, data: JournalEntryUpdate
+) -> JournalEntry:
+    return crud.apply_changes(db, get_journal_entry(db, entry_id), data.changes())
+
+
+def delete_journal_entry(db: Session, entry_id: uuid.UUID) -> None:
+    """Linked records keep existing; their journal_entry_id becomes NULL."""
+    crud.delete(db, get_journal_entry(db, entry_id))
