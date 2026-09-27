@@ -280,3 +280,49 @@ def test_private_search_when_asked(chat: Chat) -> None:
     result = chat.send("Search my private memories about Sarah.")
     assert "search_private_memories" in [a.tool for a in result.actions]
     assert "gift" in result.reply.lower()
+
+
+def _handle(chat: Chat, message: str):
+    from app.services.chat import handle_message
+
+    response = handle_message(
+        chat.db, message, chat.conversation.id if chat.conversation else None, chat.llm
+    )
+    if chat.conversation is None:
+        from app.models import Conversation
+
+        chat.conversation = chat.db.get(Conversation, response.conversation_id)
+    return response
+
+
+def test_inline_core_modifier(chat: Chat) -> None:
+    _handle(chat, "Dinner with Sarah at Barista, spent 2400 /core")
+    (entry,) = chat.all(JournalEntry)
+    assert entry.importance_score == 5
+    assert "/core" not in entry.raw_text
+    assert chat.all(Expense)[0].amount == Decimal("2400.00")
+
+
+def test_scratch_that(chat: Chat) -> None:
+    _handle(chat, "Spent 900 on a pizza.")
+    assert len(chat.all(Expense)) == 1
+    _handle(chat, "Scratch that, I didn't actually buy it.")
+    assert chat.all(Expense) == []
+
+
+def test_that_was_yesterday(chat: Chat) -> None:
+    from datetime import timedelta
+
+    from app.core.time import today_local
+
+    _handle(chat, "Had lunch with Alex and spent 1500.")
+    _handle(chat, "Oh wait, that was yesterday, not today.")
+    (expense,) = chat.all(Expense)
+    assert expense.expense_date == today_local() - timedelta(days=1)
+
+
+def test_remember_that_forever(chat: Chat) -> None:
+    _handle(chat, "Went to the beach with Maya at sunset.")
+    _handle(chat, "Remember that forever.")
+    (entry,) = chat.all(JournalEntry)
+    assert entry.importance_score == 5

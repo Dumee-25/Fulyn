@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { ChatActionChips } from "@/components/chat-action-chips";
+import { CommandList, useCommandPicker } from "@/components/command-picker";
+import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { announceDataChanged } from "@/hooks/use-api";
@@ -30,6 +32,8 @@ export function QuickChat() {
   const [pending, setPending] = useState(false);
   const [last, setLast] = useState<ChatResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const picker = useCommandPicker(draft, setDraft);
 
   if (pathname === "/chat") return null;
 
@@ -91,13 +95,21 @@ export function QuickChat() {
         </div>
       </div>
       {last && (
-        <div className="mb-2 max-h-48 overflow-y-auto rounded-lg bg-muted/40 p-2 text-sm whitespace-pre-wrap">
-          {last.reply}
+        <div className="mb-2 max-h-64 overflow-y-auto rounded-lg bg-muted/40 p-2 text-sm">
+          <Markdown source={last.reply} compact />
           <ChatActionChips actions={last.actions} />
         </div>
       )}
       {pending && <p className="mb-2 text-xs text-muted-foreground">Thinking…</p>}
       {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
+      {picker.open && (
+        <CommandList
+          items={picker.items}
+          active={picker.active}
+          onPick={picker.pick}
+          className="mb-2 max-h-48"
+        />
+      )}
       <form
         className="flex items-end gap-2"
         onSubmit={(e) => {
@@ -109,13 +121,14 @@ export function QuickChat() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
+            if (picker.onKeyDown(e)) return;
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void send();
             }
           }}
           rows={2}
-          placeholder="Spent 850 on dinner…"
+          placeholder="Spent 850 on dinner… or /help"
           aria-label="Quick message"
           className="min-h-10 resize-none"
           autoFocus

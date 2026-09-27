@@ -92,3 +92,11 @@ def get_llm() -> LLMClient:
     return _ollama_client(
         settings.ollama_base_url, settings.ollama_model, settings.ollama_timeout_seconds
     )
+
+
+def optional_llm() -> LLMClient | None:
+    """FastAPI dependency for routes that also work without the model (reports, /commands)."""
+    try:
+        return get_llm()
+    except LLMUnavailableError:
+        return None

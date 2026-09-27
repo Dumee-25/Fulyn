@@ -98,3 +98,16 @@ def delete_all(db: Session) -> None:
     for conversation in db.scalars(select(Conversation)):
         db.delete(conversation)
     db.commit()
+
+
+def append_to_last_assistant(db: Session, conversation_id: uuid.UUID, content: str) -> None:
+    """Replace the final assistant reply's text (used when commands add a note to it)."""
+    message = db.scalar(
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation_id, ChatMessage.role == "assistant")
+        .order_by(ChatMessage.created_at.desc())
+        .limit(1)
+    )
+    if message is not None:
+        message.content = content
+        db.commit()

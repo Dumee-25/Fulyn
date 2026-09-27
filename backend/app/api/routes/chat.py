@@ -3,7 +3,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.agent.llm import LLMClient, get_llm
+from app.agent import commands
+from app.agent.llm import LLMClient, optional_llm
 from app.api.deps import DbSession
 from app.schemas.chat import ChatMessageRead, ChatRequest, ChatResponse, ConversationRead
 from app.services import chat as service
@@ -14,9 +15,24 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 @router.post("", response_model=ChatResponse)
 def send_message(
-    db: DbSession, data: ChatRequest, llm: Annotated[LLMClient, Depends(get_llm)]
+    db: DbSession, data: ChatRequest, llm: Annotated[LLMClient | None, Depends(optional_llm)]
 ) -> ChatResponse:
     return service.handle_message(db, data.message, data.conversation_id, llm)
+
+
+@router.get("/commands")
+def list_commands() -> list[dict[str, str]]:
+    """Slash commands, for the command picker in the chat box."""
+    return [
+        {
+            "name": c.name,
+            "usage": c.usage,
+            "description": c.description,
+            "kind": c.kind,
+            "group": c.group,
+        }
+        for c in commands.COMMANDS
+    ]
 
 
 @router.get("/conversations", response_model=list[ConversationRead])

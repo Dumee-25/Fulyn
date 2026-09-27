@@ -37,6 +37,8 @@ class ToolContext:
     llm: Any = None
     # Set by vault tools: the whole turn is then kept out of future model context.
     vault_accessed: bool = False
+    # The conversation this turn belongs to (for "undo that" / "that was yesterday").
+    conversation_id: uuid.UUID | None = None
 
 
 Handler = Callable[[ToolContext, Any], Any]
@@ -81,6 +83,9 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return list(self._tools)
+
+    def get(self, name: str) -> Tool:
+        return self._tools[name]
 
     def schemas(self) -> list[dict[str, Any]]:
         return [tool.schema() for tool in self._tools.values()]

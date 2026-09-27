@@ -4,6 +4,8 @@ import { ArrowUp, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { ChatActionChips } from "@/components/chat-action-chips";
+import { CommandList, useCommandPicker } from "@/components/command-picker";
+import { Markdown } from "@/components/markdown";
 import { ErrorText } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,11 +38,11 @@ function Bubble({ message }: { message: ChatMessage }) {
     <div className={cn("flex", mine && "justify-end")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap",
-          mine ? "bg-secondary text-secondary-foreground" : "text-foreground",
+          "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+          mine ? "bg-secondary whitespace-pre-wrap text-secondary-foreground" : "text-foreground",
         )}
       >
-        {message.content}
+        {mine ? message.content : <Markdown source={message.content} compact />}
         {!mine && <ChatActionChips actions={message.actions} />}
       </div>
     </div>
@@ -54,6 +56,7 @@ export default function ChatPage() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const picker = useCommandPicker(draft, setDraft);
 
   // Restore the last conversation.
   useEffect(() => {
@@ -159,18 +162,27 @@ export default function ChatPage() {
             <ErrorText>{error}</ErrorText>
           </div>
         )}
+        {picker.open && (
+          <CommandList
+            items={picker.items}
+            active={picker.active}
+            onPick={picker.pick}
+            className="mb-2"
+          />
+        )}
         <div className="flex items-end gap-2">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              if (picker.onKeyDown(e)) return;
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void send();
               }
             }}
             rows={2}
-            placeholder="Message Fulyn…"
+            placeholder="Message Fulyn… (type / for commands)"
             aria-label="Message"
             className="max-h-48 min-h-10 resize-none"
             autoFocus

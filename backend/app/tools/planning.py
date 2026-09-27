@@ -7,7 +7,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from app.core.time import now_local
-from app.models.planning import Decision
+from app.models.people import Person
+from app.models.planning import Decision, Reminder, Subscription, WaitingItem
 from app.schemas.planning import (
     DecisionCreate,
     DecisionRead,
@@ -44,6 +45,7 @@ TIMESTAMPS = {"created_at", "updated_at"}
 
 def create_subscription(ctx: ToolContext, args: SubscriptionCreate) -> dict[str, Any]:
     sub = planning.create_subscription(ctx.db, args)
+    ctx.created.append((Subscription, sub.id))
     return {"record": planning.subscription_view(sub).model_dump(exclude=TIMESTAMPS)}
 
 
@@ -62,6 +64,12 @@ def get_subscriptions(ctx: ToolContext, args: GetSubscriptionsArgs) -> dict[str,
 
 
 # --- Reminders ---------------------------------------------------------------------
+
+
+def create_reminder(ctx: ToolContext, args: ReminderCreate) -> dict[str, Any]:
+    reminder = planning.create_reminder(ctx.db, args)
+    ctx.created.append((Reminder, reminder.id))
+    return {"record": dump_record(ReminderRead, reminder)}
 
 
 class GetRemindersArgs(ToolArgs):
@@ -120,7 +128,9 @@ class CreateWaitingArgs(ToolArgs):
 def create_waiting_item(ctx: ToolContext, args: CreateWaitingArgs) -> dict[str, Any]:
     person = None
     if args.related_person_name:
-        person, _ = people.resolve_person(ctx.db, args.related_person_name, create=True)
+        person, created = people.resolve_person(ctx.db, args.related_person_name, create=True)
+        if created:
+            ctx.created.append((Person, person.id))
     item = planning.create_waiting(
         ctx.db,
         WaitingCreate(
@@ -128,6 +138,7 @@ def create_waiting_item(ctx: ToolContext, args: CreateWaitingArgs) -> dict[str, 
             **args.model_dump(exclude={"related_person_name"}),
         ),
     )
+    ctx.created.append((WaitingItem, item.id))
     return {"record": planning.waiting_view(ctx.db, item).model_dump(exclude=TIMESTAMPS)}
 
 
@@ -190,9 +201,7 @@ def planning_tools() -> list[Tool]:
             "Create a reminder. due_at is a local datetime; use 09:00 when only a day is "
             "given. recurrence_rule: daily, weekly, monthly or yearly.",
             ReminderCreate,
-            lambda ctx, args: {
-                "record": dump_record(ReminderRead, planning.create_reminder(ctx.db, args))
-            },
+            create_reminder,
         ),
         Tool(
             "get_reminders",

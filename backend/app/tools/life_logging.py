@@ -363,7 +363,11 @@ def finalize_turn(ctx: ToolContext) -> None:
     If records were created but the model did not save a journal entry, the user's
     message is saved as one. Unlinked records are then linked to it.
     """
-    records = [(cls, rid) for cls, rid in ctx.created if cls is not JournalEntry]
+    records = [
+        (cls, rid)
+        for cls, rid in ctx.created
+        if cls is not JournalEntry and hasattr(cls, "journal_entry_id")
+    ]
     if not records:
         return
     if ctx.journal_entry_id is None:

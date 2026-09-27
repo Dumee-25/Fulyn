@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent.llm import _parse_arguments, get_llm
+from app.agent.llm import _parse_arguments, optional_llm
 from app.agent.loop import STEP_LIMIT_REPLY, run_agent
 from app.core.config import get_settings
 from app.main import app
@@ -254,7 +254,7 @@ class TestChatApi:
             tools(call("create_journal_entry"), call("create_expense", amount=850)),
             say("Logged Rs. 850."),
         )
-        app.dependency_overrides[get_llm] = lambda: llm
+        app.dependency_overrides[optional_llm] = lambda: llm
         res = api.post("/api/chat", json={"message": "Spent 850 on dinner."})
         assert res.status_code == 200, res.text
         body = res.json()
@@ -267,7 +267,7 @@ class TestChatApi:
         assert api.get("/api/chat/conversations").json()[0]["id"] == body["conversation_id"]
 
     def test_unknown_conversation(self, api: TestClient) -> None:
-        app.dependency_overrides[get_llm] = lambda: FakeLLM()
+        app.dependency_overrides[optional_llm] = lambda: FakeLLM()
         res = api.post(
             "/api/chat",
             json={"message": "hi", "conversation_id": "00000000-0000-0000-0000-000000000000"},

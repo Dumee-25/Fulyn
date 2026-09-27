@@ -13,7 +13,7 @@ from typing import Any
 from pydantic import Field, model_validator
 
 from app.models.journal import JournalEntry
-from app.models.people import MusicMemory, PersonInteraction
+from app.models.people import MusicMemory, Person, PersonInteraction
 from app.schemas.common import ImportanceScore
 from app.schemas.people import (
     InteractionCreate,
@@ -83,7 +83,9 @@ def create_person(ctx: ToolContext, args: PersonCreate) -> dict[str, Any]:
             "note": "a person with this name already exists; use their id, or ask the "
             "user if this is someone different",
         }
-    return {"person": _person_payload(people.create_person(ctx.db, args))}
+    person = people.create_person(ctx.db, args)
+    ctx.created.append((Person, person.id))
+    return {"person": _person_payload(person)}
 
 
 # --- Interactions ------------------------------------------------------------------
@@ -110,6 +112,8 @@ class CreateInteractionArgs(PersonRef):
 
 def create_person_interaction(ctx: ToolContext, args: CreateInteractionArgs) -> dict[str, Any]:
     person, created = _resolve(ctx, args, create=True)
+    if created:
+        ctx.created.append((Person, person.id))
     data = InteractionCreate(
         person_id=person.id,
         raw_context=ctx.user_message,
@@ -168,6 +172,8 @@ class CreateMusicArgs(PersonRef):
 
 def create_music_memory(ctx: ToolContext, args: CreateMusicArgs) -> dict[str, Any]:
     person, created = _resolve(ctx, args, create=True)
+    if created:
+        ctx.created.append((Person, person.id))
     data = MusicCreate(
         person_id=person.id if person else None,
         **args.model_dump(exclude={"person_id", "person_name"}),

@@ -198,7 +198,7 @@ Revision `0001` enables the `vector` extension; `0002` adds the core logging tab
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
 journal entries); `0005` adds people, interactions and music memories; `0006` adds subscriptions,
 reminders, decisions and waiting items; `0007` adds life events and stored reports; `0008`
-marks private chat turns.
+marks private chat turns; `0009` tracks which records each chat message created.
 
 ## The agent
 
@@ -233,6 +233,40 @@ Guarantees enforced in code rather than left to the prompt:
 
 Chat transcripts (including tool calls) are stored in `conversations` and
 `chat_messages` so later messages can refer back to earlier records.
+
+## Chat commands and phrases
+
+Type `/` in either chat box to pick a command. Commands run in the backend without the
+model, so they are instant and work even when Ollama is down.
+
+| Command | What it does |
+| --- | --- |
+| `/core`, `/important`, `/meh` | Importance 5, 4 or 1 |
+| `/private` | Put it in the vault |
+| `/nolog <message>` | Chat without logging anything (the model only gets read tools) |
+| `/vault last`, `/vault <words>` | Move the last message to the vault, or search the vault |
+| `/undo` | Delete everything the last message logged (people it created too, unless used elsewhere) |
+| `/date <day>` | Move the last message's records to another day (`yesterday`, `12 sept`, `friday`, `2026-09-12`) |
+| `/impulse`, `/notimpulse` | Toggle impulse on the last expense |
+| `/spent <amount> <what> [at <place>]` | Log an expense (category guessed from keywords) |
+| `/coffee [drink] [time]`, `/mood <1-10> [feeling]`, `/slept <hours>` | Quick logs |
+| `/remind <day> [time] <what>` | Reminder (09:00 if no time) |
+| `/today`, `/week`, `/month [month]` | Recaps and reports |
+| `/who <name>`, `/waiting`, `/help` | Views |
+
+`/core`, `/important`, `/meh`, `/private` and `/nolog` can also go anywhere in a normal
+message ("Dinner with Sarah, spent 2400 /core"): the model logs the message without the
+command, then the command applies to what it logged. On their own they apply to the last
+message.
+
+The same things work in plain words: "undo that" / "scratch that", "that was yesterday",
+"remember that forever", "that's not important", "vault that", "remember this", "keep
+this private", "don't save this". The agent has `undo_last_message`,
+`move_last_message` and `set_last_message_importance` tools for the ones about the
+previous message.
+
+"The last message" means the most recent message in the conversation that logged
+something; each message's records are tracked in `turn_records` (migration `0009`).
 
 ## Memory
 

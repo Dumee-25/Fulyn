@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
-from app.agent.llm import LLMClient, LLMUnavailableError, get_llm
+from app.agent.llm import LLMClient, optional_llm
 from app.api.deps import DbSession, ListQuery
 from app.core.time import today_local
 from app.schemas.report import (
@@ -20,14 +20,6 @@ from app.services import life_events, reports, timeline
 events_router = APIRouter(prefix="/events", tags=["events"])
 timeline_router = APIRouter(prefix="/timeline", tags=["timeline"])
 reports_router = APIRouter(prefix="/reports", tags=["reports"])
-
-
-def optional_llm() -> LLMClient | None:
-    """Reports still work without the model; they just have no narrative."""
-    try:
-        return get_llm()
-    except LLMUnavailableError:
-        return None
 
 
 OptionalLLM = Annotated[LLMClient | None, Depends(optional_llm)]

@@ -8,6 +8,7 @@ from app.tools.people import people_tools
 from app.tools.planning import planning_tools
 from app.tools.registry import ToolRegistry
 from app.tools.reports import report_tools
+from app.tools.turns import TURN_TOOLS
 from app.tools.vault import VAULT_TOOLS
 
 
@@ -22,6 +23,7 @@ def build_registry() -> ToolRegistry:
         *analytics_tools(),
         *VAULT_TOOLS,
         *EXPORT_TOOLS,
+        *TURN_TOOLS,
     ]:
         registry.register(tool)
     return registry

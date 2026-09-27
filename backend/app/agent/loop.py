@@ -5,6 +5,7 @@ user message -> model (with tools) -> validated tool calls -> results back to th
 """
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
@@ -16,7 +17,7 @@ from app.agent.prompt import build_system_prompt
 from app.core.config import get_settings
 from app.core.time import now_local
 from app.models.conversation import Conversation
-from app.services import conversations
+from app.services import conversations, turns
 from app.tools.catalog import build_registry
 from app.tools.life_logging import finalize_turn
 from app.tools.registry import ToolContext, ToolRegistry
@@ -41,11 +42,29 @@ class ActionRecord:
 class AgentResult:
     reply: str
     actions: list[ActionRecord] = field(default_factory=list)
+    # Records this turn created, the ids of its chat messages, and its journal entry.
+    created: list[tuple[type, uuid.UUID]] = field(default_factory=list)
+    message_ids: list[uuid.UUID] = field(default_factory=list)
+    journal_entry_id: uuid.UUID | None = None
 
 
 @lru_cache
 def default_registry() -> ToolRegistry:
     return build_registry()
+
+
+READ_ONLY_PREFIXES = ("get_", "search_", "find_", "summarize_", "compare_", "songs_")
+
+
+@lru_cache
+def read_only_registry() -> ToolRegistry:
+    """Tools that only read, for messages that must not log anything (/nolog)."""
+    full = build_registry()
+    registry = ToolRegistry()
+    for name in full.names():
+        if name.startswith(READ_ONLY_PREFIXES) and not name.startswith("search_private"):
+            registry.register(full.get(name))
+    return registry
 
 
 def run_agent(
@@ -54,20 +73,26 @@ def run_agent(
     user_message: str,
     llm: LLMClient,
     registry: ToolRegistry | None = None,
+    stored_message: str | None = None,
 ) -> AgentResult:
+    """``user_message`` goes to the model; ``stored_message`` (default: the same) is what the
+    transcript shows, e.g. with a trailing /core that the model shouldn't see."""
     settings = get_settings()
     registry = registry or default_registry()
     tools = registry.schemas()
 
     history = conversations.recent_history(db, conversation.id, settings.agent_history_messages)
-    turn = [conversations.add_message(db, conversation, "user", user_message).id]
+    user_record = conversations.add_message(
+        db, conversation, "user", stored_message or user_message
+    )
+    turn = [user_record.id]
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": build_system_prompt(now_local())},
         *history,
         {"role": "user", "content": user_message},
     ]
 
-    ctx = ToolContext(db=db, user_message=user_message, llm=llm)
+    ctx = ToolContext(db=db, user_message=user_message, llm=llm, conversation_id=conversation.id)
     actions: list[ActionRecord] = []
     reply = STEP_LIMIT_REPLY
 
@@ -112,7 +137,14 @@ def run_agent(
         turn.append(conversations.add_message(db, conversation, "assistant", reply).id)
 
     finalize_turn(ctx)
+    turns.record_turn(db, conversation.id, user_record.id, ctx.created)
     if ctx.vault_accessed:
         conversations.mark_private(db, turn)
     db.commit()
-    return AgentResult(reply=reply, actions=actions)
+    return AgentResult(
+        reply=reply,
+        actions=actions,
+        created=list(ctx.created),
+        message_ids=turn,
+        journal_entry_id=ctx.journal_entry_id,
+    )

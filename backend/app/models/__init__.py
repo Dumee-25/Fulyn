@@ -11,6 +11,7 @@ from app.models.people import MusicMemory, Person, PersonInteraction
 from app.models.planning import Decision, Reminder, Subscription, WaitingItem
 from app.models.report import DailyRecap, LifeEvent, MonthlyReport, WeeklyRecap
 from app.models.sleep import SleepLog
+from app.models.turn import TurnRecord
 
 __all__ = [
     "Base",
@@ -31,6 +32,7 @@ __all__ = [
     "Reminder",
     "SleepLog",
     "Subscription",
+    "TurnRecord",
     "WaitingItem",
     "WeeklyRecap",
 ]
