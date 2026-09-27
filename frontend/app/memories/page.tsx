@@ -88,6 +88,17 @@ function MemoryCard({
         </span>
       </div>
       <p className="line-clamp-4 text-sm leading-relaxed whitespace-pre-wrap">{memory.content}</p>
+      {memory.tags.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Also in this moment">
+          {memory.tags.map((tag) => (
+            <li key={tag}>
+              <Badge variant="outline" className="font-normal text-muted-foreground">
+                {tag}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

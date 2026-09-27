@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.common import ImportanceScore, PatchModel, ReadModel
 
@@ -17,11 +17,20 @@ class MemoryRead(ReadModel):
     source_id: uuid.UUID | None
     title: str | None
     content: str
+    # People, places, events, songs and decisions logged in the same moment.
+    tags: list[str] = []
     memory_date: date
     importance_score: int
     is_private: bool
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _split_tags(cls, value: object) -> object:
+        if value is None:
+            return []
+        return value.splitlines() if isinstance(value, str) else value
 
 
 class MemorySearchResult(MemoryRead):

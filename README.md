@@ -204,7 +204,8 @@ Revision `0001` enables the `vector` extension; `0002` adds the core logging tab
 `0003` adds chat conversations; `0004` adds memories (and creates memories for existing
 journal entries); `0005` adds people, interactions and music memories; `0006` adds subscriptions,
 reminders, decisions and waiting items; `0007` adds life events and stored reports; `0008`
-marks private chat turns; `0009` tracks which records each chat message created.
+marks private chat turns; `0009` tracks which records each chat message created; `0010`
+makes memories one per moment (see Memory).
 
 ## The agent
 
@@ -276,10 +277,19 @@ something; each message's records are tracked in `turn_records` (migration `0009
 
 ## Memory
 
-Every journal entry is mirrored into the `memories` table, the single searchable index
-(later phases add events, interactions, decisions and music). Each memory stores the text,
-date, importance (0 disposable … 5 core memory), privacy flag, a 768-dimension embedding
-and a generated full-text vector.
+The `memories` table is the single searchable index. Each memory stores the text, date,
+importance (0 disposable … 5 core memory), privacy flag, tags, a 768-dimension embedding
+and a generated full-text vector (title, text and tags).
+
+**One memory per moment.** A chat message like "Went to open day duties with Chamodi…"
+creates a journal entry plus, say, an interaction and a life event, all linked to the
+entry. That is one moment, so it gets one memory: the journal entry's. Its `tags` list the
+linked people, places, event titles, songs and decision titles, so searching "Chamodi" or
+"open day duties" finds the moment once, by words and by meaning. The memory is re-synced
+whenever a linked record is created, edited, deleted, or linked to or unlinked from the
+entry (including when the agent links records after the turn). Interactions, events,
+music and decisions added on their own page, without a journal entry, keep a memory of
+their own; if a journal entry is deleted, its records get their own memories back.
 
 **Search is hybrid.** Testing `nomic-embed-text` showed that vector similarity alone is not
 trustworthy here: a query about a person who never appears ("what happened with John")
@@ -296,10 +306,18 @@ finds "Uber home because it was raining".
   `POST /api/memories/backfill`. Changing the embedding model re-embeds automatically;
   a model with a different dimension needs a migration (`EMBEDDING_DIMENSIONS` in
   `app/models/memory.py`).
-- Importance stays in sync both ways: changing a memory updates its journal entry and
-  vice versa. "Remember this" and "make that a core memory" set it to 5.
+- Importance is per moment. Changing it anywhere (the memory, the journal entry, any
+  linked record, the agent's tools, or `/core`, `/important`, `/meh`) sets the journal
+  entry, every linked record and the memory to the same value. A record joining a moment
+  never lowers it: the moment takes the highest importance among its records. "Remember
+  this" and "make that a core memory" set it to 5.
 - Private entries are never returned by memory listing, search, `GET /api/memories/{id}`
-  or the agent's search tool. Vault search comes in Phase 9.
+  or the agent's search tool. Whether a moment is vault content is decided by its journal
+  entry's `is_private`.
+- Migration `0010` moved existing data to this model: each moment's importance became the
+  highest among its entry and records, the linked records' memory rows were deleted, and
+  the journal memories got their tags and were queued for re-embedding (the backfill
+  re-embeds memories whose embedding is empty).
 
 ## People and music
 
@@ -316,10 +334,11 @@ finds "Uber home because it was raining".
 - **Music memories** link a song to a date, feeling, text and optionally a person.
   `GET /api/music/top` (and the agent's music search with a date range) returns the
   most-mentioned songs, e.g. "what songs defined September?".
-- **Semantic linking:** interactions and music memories are mirrored into `memories`
-  (titles like "With Maya" and "Yellow by Coldplay", contents include the person's name),
-  so memory search finds them next to journal entries. Renaming a person refreshes those
-  memories, and records that came from a private journal entry are private too.
+- **Semantic linking:** interactions and music memories are searchable. Logged in chat,
+  they are part of their message's moment and appear in the journal memory's tags ("Maya",
+  "Yellow by Coldplay"); added on their own, they get their own memory ("With Maya").
+  Renaming a person refreshes those memories, and records that came from a private
+  journal entry are private too.
 - Deleting a person deletes their interactions; music memories stay, unlinked.
 
 ## Planning
@@ -350,11 +369,23 @@ finds "Uber home because it was raining".
 
 - **Life events** record outings and milestones ("Barista with Maya", "passed the driving
   test"); the agent creates them for notable occasions, not routine ones. They are part
-  of memory search.
-- **Timeline** (`/timeline`) merges life events, decisions, interactions and music memories
-  at or above a minimum importance (default 2), journal entries only when notable (3+),
-  and expenses at or above `MAJOR_PURCHASE_AMOUNT` (default Rs. 10,000). So a normal coffee
-  never appears.
+  of memory search (through their journal entry's memory when they have one).
+- **Timeline** (`/timeline`, `GET /api/timeline`, agent tool `get_timeline`) shows one card
+  per day. It draws on life events, decisions, interactions and music memories at or above
+  a minimum importance (default 2), journal entries only when notable (3+), and expenses
+  at or above `MAJOR_PURCHASE_AMOUNT` (default Rs. 10,000), so a normal coffee never
+  appears. Each day has:
+  - a **headline**: the day's most important item; on a tie a life event wins, then a
+    decision, an interaction ("With Maya"), music, the journal summary or first line, and
+    last a purchase;
+  - its highest **importance** (5 shows a "core memory" badge);
+  - a short **summary** built from the records without a model (who with, where, other
+    events and decisions, major amounts). If a daily recap was generated for that day with
+    a narrative, the narrative is used instead;
+  - **tags** for people, places and amounts;
+  - its **moments**: records logged by the same message are grouped under their journal
+    entry, so one message is one moment, shown with a short line and your original words.
+  `limit` counts days. Vault content never appears.
 - **Reports** (`/reports`): daily recap, weekly recap (Monday–Sunday, compared with the week
   before) and monthly life report. They are generated on demand and stored; generating
   again replaces the stored version.
@@ -463,7 +494,7 @@ REST under `/api`. Every resource supports `GET` (list, with `date_from`, `date_
 | `/api/decisions` | `q`, `status`, date range |
 | `/api/waiting` | `status` (default waiting), `q`; setting `status` sets `resolved_at` |
 | `/api/events` | life events; `q`, `min_importance`, date range |
-| `/api/timeline` | `date_from`, `date_to`, `min_importance` |
+| `/api/timeline` | `date_from`, `date_to`, `min_importance`, `limit` (days); one item per day |
 | `/api/reports/daily` | `GET ?date=` stored recap; `POST {date}` generate |
 | `/api/reports/weekly` | `GET ?date=` (any day of the week); `POST {date}` |
 | `/api/reports/monthly` | `GET ?year=&month=`; `POST {year, month}` |

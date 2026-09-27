@@ -60,9 +60,7 @@ class TestIsolation:
         assert people.list_people(db)[0].interaction_count == 0
         found = memories.search_memories(db, "Sarah gift").results
         assert all("gift" not in r.content for r in found)
-        assert all(
-            "gift" not in (i.detail or "") for i in timeline.get_timeline(db, min_importance=0)
-        )
+        assert "gift" not in str(timeline.get_timeline(db, min_importance=0))
 
     def test_vault_sees_only_private(self, db: Session, secret: JournalEntry) -> None:
         assert [e.raw_text for e in vault.list_entries(db)] == ["Bought Sarah a surprise gift"]

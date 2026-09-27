@@ -49,11 +49,21 @@ def list_life_events(
 
 
 def update_life_event(db: Session, event_id: uuid.UUID, data: LifeEventUpdate) -> LifeEvent:
-    event = crud.apply_changes(db, get_life_event(db, event_id), data.changes())
-    memories.sync_event_memory(db, event)
+    event = get_life_event(db, event_id)
+    previous_entry_id = event.journal_entry_id
+    changes = data.changes()
+    event = crud.apply_changes(db, event, changes)
+    memories.sync_event_memory(
+        db,
+        event,
+        previous_entry_id=previous_entry_id,
+        importance_changed="importance_score" in changes,
+    )
     return event
 
 
 def delete_life_event(db: Session, event_id: uuid.UUID) -> None:
-    crud.delete(db, get_life_event(db, event_id))
-    memories.delete_memories_for(db, "event", event_id)
+    event = get_life_event(db, event_id)
+    entry_id = event.journal_entry_id
+    crud.delete(db, event)
+    memories.delete_memories_for(db, "event", event_id, entry_id)

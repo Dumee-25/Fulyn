@@ -196,14 +196,24 @@ def list_decisions(
 
 
 def update_decision(db: Session, decision_id: uuid.UUID, data: DecisionUpdate) -> Decision:
-    decision = crud.apply_changes(db, get_decision(db, decision_id), data.changes())
-    memories.sync_decision_memory(db, decision)
+    decision = get_decision(db, decision_id)
+    previous_entry_id = decision.journal_entry_id
+    changes = data.changes()
+    decision = crud.apply_changes(db, decision, changes)
+    memories.sync_decision_memory(
+        db,
+        decision,
+        previous_entry_id=previous_entry_id,
+        importance_changed="importance_score" in changes,
+    )
     return decision
 
 
 def delete_decision(db: Session, decision_id: uuid.UUID) -> None:
-    crud.delete(db, get_decision(db, decision_id))
-    memories.delete_memories_for(db, "decision", decision_id)
+    decision = get_decision(db, decision_id)
+    entry_id = decision.journal_entry_id
+    crud.delete(db, decision)
+    memories.delete_memories_for(db, "decision", decision_id, entry_id)
 
 
 # --- Waiting items -----------------------------------------------------------------

@@ -13,7 +13,7 @@ from app.schemas.report import (
     LifeEventRead,
     LifeEventUpdate,
     ReportRead,
-    TimelineItem,
+    TimelineDay,
 )
 from app.services import life_events, reports, timeline
 
@@ -63,7 +63,7 @@ def delete_event(db: DbSession, event_id: uuid.UUID) -> None:
 # --- Timeline ----------------------------------------------------------------------
 
 
-@timeline_router.get("", response_model=list[TimelineItem])
+@timeline_router.get("", response_model=list[TimelineDay])
 def get_timeline(
     db: DbSession,
     date_from: dt.date | None = None,

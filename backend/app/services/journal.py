@@ -47,12 +47,22 @@ def list_journal_entries(
 def update_journal_entry(
     db: Session, entry_id: uuid.UUID, data: JournalEntryUpdate
 ) -> JournalEntry:
-    entry = crud.apply_changes(db, get_journal_entry(db, entry_id), data.changes())
-    memories.sync_journal_memory(db, entry)
+    changes = data.changes()
+    entry = crud.apply_changes(db, get_journal_entry(db, entry_id), changes)
+    if "importance_score" in changes:
+        # Importance belongs to the moment: linked records follow the entry.
+        memories.set_moment_importance(db, entry.id, entry.importance_score)
+    else:
+        memories.sync_journal_memory(db, entry)
     return entry
 
 
 def delete_journal_entry(db: Session, entry_id: uuid.UUID) -> None:
-    """Linked records keep existing; their journal_entry_id becomes NULL."""
+    """Linked records keep existing; their journal_entry_id becomes NULL and each gets a
+    memory of its own again."""
+    linked = memories.moment_records(db, entry_id)
     crud.delete(db, get_journal_entry(db, entry_id))
     memories.delete_memories_for(db, "journal", entry_id)
+    for record in linked:
+        db.refresh(record)
+        memories.sync_record_memory(db, record)

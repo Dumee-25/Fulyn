@@ -24,6 +24,10 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 # migration that alters this column and re-embeds (embeddings are nulled and backfilled).
 EMBEDDING_DIMENSIONS = 768
 
+SEARCH_VECTOR_SQL = (
+    "to_tsvector('english', coalesce(title, '') || ' ' || content || ' ' || coalesce(tags, ''))"
+)
+
 MEMORY_TYPES = (
     "journal",
     "event",
@@ -40,6 +44,8 @@ class Memory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     A memory points at a domain record (``memory_type`` + ``source_id``) and holds the
     text that is embedded and full-text indexed. Domain records stay authoritative.
+    A journal memory stands for the whole moment; ``tags`` (one per line) carries the
+    people, places, events, songs and decisions logged with it.
     """
 
     __tablename__ = "memories"
@@ -63,6 +69,7 @@ class Memory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source_id: Mapped[uuid.UUID | None] = mapped_column()
     title: Mapped[str | None] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[str | None] = mapped_column(Text)
     memory_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     importance_score: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, default=2, server_default=text("2")
@@ -75,5 +82,5 @@ class Memory(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     embedding_model: Mapped[str | None] = mapped_column(String(100))
     search_vector: Mapped[str] = mapped_column(
         TSVECTOR,
-        Computed("to_tsvector('english', coalesce(title, '') || ' ' || content)", persisted=True),
+        Computed(SEARCH_VECTOR_SQL, persisted=True),
     )

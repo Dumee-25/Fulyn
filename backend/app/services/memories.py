@@ -1,4 +1,4 @@
-"""The memory layer: one searchable row per memorable domain record.
+"""The memory layer: one searchable row per moment (see "Sync from domain records").
 
 Search is hybrid. Vector similarity alone ranks unrelated text highly (a query about a
 person who never appears still gets ~0.6 similarity), so results are fused with Postgres
@@ -8,10 +8,11 @@ says whether it actually contains the query's words.
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.journal import JournalEntry
@@ -33,6 +34,19 @@ TITLE_MAX = 200
 
 
 # --- Sync from domain records ----------------------------------------------------
+#
+# One memory per moment. A chat message that logs a journal entry plus an interaction and
+# a life event is one moment, so only the journal entry's memory represents it; its tags
+# carry the linked people, places, events, songs and decisions so search still finds it.
+# Records without a journal entry (added on their own page) keep a memory of their own.
+
+# Record types that can belong to a journal entry's moment, by memory_type.
+MOMENT_MODELS: dict[str, type] = {
+    "person_interaction": PersonInteraction,
+    "event": LifeEvent,
+    "music": MusicMemory,
+    "decision": Decision,
+}
 
 
 def _title_from(text: str) -> str:
@@ -50,6 +64,7 @@ def upsert_memory(
     memory_date: date,
     importance_score: int,
     is_private: bool,
+    tags: list[str] | None = None,
 ) -> Memory:
     """Create or refresh the memory for a source record, re-embedding if its text changed."""
     memory = db.scalar(
@@ -58,9 +73,16 @@ def upsert_memory(
     if memory is None:
         memory = Memory(memory_type=memory_type, source_id=source_id, content=content)
         db.add(memory)
-    text_changed = memory.content != content or memory.title != title or memory.id is None
+    tag_text = "\n".join(tags) if tags else None
+    text_changed = (
+        memory.content != content
+        or memory.title != title
+        or memory.tags != tag_text
+        or memory.id is None
+    )
     memory.title = title
     memory.content = content
+    memory.tags = tag_text
     memory.memory_date = memory_date
     memory.importance_score = importance_score
     memory.is_private = is_private
@@ -73,15 +95,59 @@ def upsert_memory(
     return memory
 
 
-def _journal_is_private(db: Session, journal_entry_id: uuid.UUID | None) -> bool:
-    if journal_entry_id is None:
-        return False
-    entry = db.get(JournalEntry, journal_entry_id)
-    return bool(entry and entry.is_private)
+def moment_records(db: Session, journal_entry_id: uuid.UUID) -> list[Any]:
+    """Interactions, events, music and decisions logged as part of a journal entry."""
+    records: list[Any] = []
+    for model in MOMENT_MODELS.values():
+        records += db.scalars(
+            select(model)
+            .where(model.journal_entry_id == journal_entry_id)
+            .order_by(model.created_at, model.id)
+        )
+    return records
+
+
+def moment_tags(db: Session, records: list[Any]) -> list[str]:
+    """Names, places, event, song and decision titles, in that order, without repeats."""
+    tags: list[str] = []
+    for record in records:
+        if isinstance(record, PersonInteraction):
+            person = db.get(Person, record.person_id)
+            tags += [person.name if person else None, record.location]
+        elif isinstance(record, LifeEvent):
+            tags.append(record.title)
+        elif isinstance(record, MusicMemory):
+            person = db.get(Person, record.person_id) if record.person_id else None
+            tags += [
+                record.song + (f" by {record.artist}" if record.artist else ""),
+                person.name if person else None,
+            ]
+        elif isinstance(record, Decision):
+            tags.append(record.title)
+    seen: set[str] = set()
+    unique = []
+    for tag in tags:
+        tag = " ".join((tag or "").split())[:TITLE_MAX]
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            unique.append(tag)
+    return unique
+
+
+def _drop_record_memories(db: Session, records: list[Any]) -> None:
+    """Records in a moment are represented by the journal entry's memory, not their own."""
+    for memory_type, model in MOMENT_MODELS.items():
+        ids = [r.id for r in records if isinstance(r, model)]
+        if ids:
+            db.execute(
+                delete(Memory).where(Memory.memory_type == memory_type, Memory.source_id.in_(ids))
+            )
 
 
 def sync_journal_memory(db: Session, entry: JournalEntry) -> Memory:
-    memory = upsert_memory(
+    records = moment_records(db, entry.id)
+    _drop_record_memories(db, records)
+    return upsert_memory(
         db,
         memory_type="journal",
         source_id=entry.id,
@@ -89,126 +155,234 @@ def sync_journal_memory(db: Session, entry: JournalEntry) -> Memory:
         content=entry.raw_text,
         memory_date=entry.entry_date,
         importance_score=entry.importance_score,
+        # Vault content is decided by the journal entry alone.
         is_private=entry.is_private,
+        tags=moment_tags(db, records),
     )
-    _propagate_privacy(db, entry)
+
+
+def resync_moment(db: Session, journal_entry_id: uuid.UUID | None) -> None:
+    """Refresh a journal entry's memory after a record joined, changed or left it."""
+    entry = db.get(JournalEntry, journal_entry_id) if journal_entry_id else None
+    if entry is not None:
+        sync_journal_memory(db, entry)
+
+
+def set_moment_importance(db: Session, journal_entry_id: uuid.UUID, score: int) -> Memory:
+    """Importance belongs to the moment: the entry and every record logged with it."""
+    entry = crud.get_or_raise(db, JournalEntry, journal_entry_id)
+    entry.importance_score = score
+    for record in moment_records(db, entry.id):
+        record.importance_score = score
+    db.commit()
+    return sync_journal_memory(db, entry)
+
+
+def _sync_record(
+    db: Session,
+    record: Any,
+    standalone: Callable[[], Memory],
+    *,
+    previous_entry_id: uuid.UUID | None,
+    importance_changed: bool,
+) -> Memory:
+    """Give an unlinked record its own memory, or fold a linked one into its moment.
+
+    Otherwise the moment takes the highest importance among the entry and its records, so
+    records that join it never lower it; an explicit importance change on a linked record
+    sets the whole moment to that value.
+    """
+    entry = db.get(JournalEntry, record.journal_entry_id) if record.journal_entry_id else None
+    if entry is None:
+        memory = standalone()
+    else:
+        if importance_changed:
+            score = record.importance_score
+        else:
+            linked = [r.importance_score for r in moment_records(db, entry.id)]
+            score = max([entry.importance_score, *linked])
+        memory = set_moment_importance(db, entry.id, score)
+    if previous_entry_id is not None and previous_entry_id != record.journal_entry_id:
+        resync_moment(db, previous_entry_id)
     return memory
 
 
-def _propagate_privacy(db: Session, entry: JournalEntry) -> None:
-    """Records that came from a private journal entry are private too."""
-    linked = [
-        (
-            "person_interaction",
-            select(PersonInteraction.id).where(PersonInteraction.journal_entry_id == entry.id),
-        ),
-        ("music", select(MusicMemory.id).where(MusicMemory.journal_entry_id == entry.id)),
-        ("decision", select(Decision.id).where(Decision.journal_entry_id == entry.id)),
-        ("event", select(LifeEvent.id).where(LifeEvent.journal_entry_id == entry.id)),
-    ]
-    for memory_type, ids in linked:
-        for memory in db.scalars(
-            select(Memory).where(Memory.memory_type == memory_type, Memory.source_id.in_(ids))
-        ):
-            memory.is_private = entry.is_private
-    db.commit()
+def sync_interaction_memory(
+    db: Session,
+    interaction: PersonInteraction,
+    *,
+    previous_entry_id: uuid.UUID | None = None,
+    importance_changed: bool = False,
+) -> Memory:
+    def standalone() -> Memory:
+        person = db.get(Person, interaction.person_id)
+        name = person.name if person else "someone"
+        parts = [interaction.summary]
+        if interaction.location:
+            parts.append(f"Location: {interaction.location}")
+        if interaction.raw_context and interaction.raw_context != interaction.summary:
+            parts.append(interaction.raw_context)
+        return upsert_memory(
+            db,
+            memory_type="person_interaction",
+            source_id=interaction.id,
+            title=f"With {name}",
+            content="\n".join(parts),
+            memory_date=interaction.interaction_date,
+            importance_score=interaction.importance_score,
+            is_private=False,
+        )
 
-
-def sync_interaction_memory(db: Session, interaction: PersonInteraction) -> Memory:
-    person = db.get(Person, interaction.person_id)
-    name = person.name if person else "someone"
-    parts = [interaction.summary]
-    if interaction.location:
-        parts.append(f"Location: {interaction.location}")
-    if interaction.raw_context and interaction.raw_context != interaction.summary:
-        parts.append(interaction.raw_context)
-    return upsert_memory(
+    return _sync_record(
         db,
-        memory_type="person_interaction",
-        source_id=interaction.id,
-        title=f"With {name}",
-        content="\n".join(parts),
-        memory_date=interaction.interaction_date,
-        importance_score=interaction.importance_score,
-        is_private=_journal_is_private(db, interaction.journal_entry_id),
+        interaction,
+        standalone,
+        previous_entry_id=previous_entry_id,
+        importance_changed=importance_changed,
     )
 
 
-def sync_music_memory(db: Session, music: MusicMemory) -> Memory:
-    person = db.get(Person, music.person_id) if music.person_id else None
-    title = music.song + (f" by {music.artist}" if music.artist else "")
-    parts = [title]
-    if music.album:
-        parts.append(f"Album: {music.album}")
-    if music.memory_text:
-        parts.append(music.memory_text)
-    if music.emotion:
-        parts.append(f"Feeling: {music.emotion}")
-    if person:
-        parts.append(f"Connected to {person.name}")
-    return upsert_memory(
+def sync_music_memory(
+    db: Session,
+    music: MusicMemory,
+    *,
+    previous_entry_id: uuid.UUID | None = None,
+    importance_changed: bool = False,
+) -> Memory:
+    def standalone() -> Memory:
+        person = db.get(Person, music.person_id) if music.person_id else None
+        title = music.song + (f" by {music.artist}" if music.artist else "")
+        parts = [title]
+        if music.album:
+            parts.append(f"Album: {music.album}")
+        if music.memory_text:
+            parts.append(music.memory_text)
+        if music.emotion:
+            parts.append(f"Feeling: {music.emotion}")
+        if person:
+            parts.append(f"Connected to {person.name}")
+        return upsert_memory(
+            db,
+            memory_type="music",
+            source_id=music.id,
+            title=title[:TITLE_MAX],
+            content="\n".join(parts),
+            memory_date=music.memory_date,
+            importance_score=music.importance_score,
+            is_private=False,
+        )
+
+    return _sync_record(
         db,
-        memory_type="music",
-        source_id=music.id,
-        title=title[:TITLE_MAX],
-        content="\n".join(parts),
-        memory_date=music.memory_date,
-        importance_score=music.importance_score,
-        is_private=_journal_is_private(db, music.journal_entry_id),
+        music,
+        standalone,
+        previous_entry_id=previous_entry_id,
+        importance_changed=importance_changed,
     )
 
 
-def sync_decision_memory(db: Session, decision: Decision) -> Memory:
-    parts = [decision.decision]
-    if decision.reasoning:
-        parts.append(f"Why: {decision.reasoning}")
-    if decision.status != "active":
-        parts.append(f"Status: {decision.status}")
-    return upsert_memory(
+def sync_decision_memory(
+    db: Session,
+    decision: Decision,
+    *,
+    previous_entry_id: uuid.UUID | None = None,
+    importance_changed: bool = False,
+) -> Memory:
+    def standalone() -> Memory:
+        parts = [decision.decision]
+        if decision.reasoning:
+            parts.append(f"Why: {decision.reasoning}")
+        if decision.status != "active":
+            parts.append(f"Status: {decision.status}")
+        return upsert_memory(
+            db,
+            memory_type="decision",
+            source_id=decision.id,
+            title=decision.title[:TITLE_MAX],
+            content="\n".join(parts),
+            memory_date=decision.decision_date,
+            importance_score=decision.importance_score,
+            is_private=False,
+        )
+
+    return _sync_record(
         db,
-        memory_type="decision",
-        source_id=decision.id,
-        title=decision.title[:TITLE_MAX],
-        content="\n".join(parts),
-        memory_date=decision.decision_date,
-        importance_score=decision.importance_score,
-        is_private=_journal_is_private(db, decision.journal_entry_id),
+        decision,
+        standalone,
+        previous_entry_id=previous_entry_id,
+        importance_changed=importance_changed,
     )
 
 
-def sync_event_memory(db: Session, event: LifeEvent) -> Memory:
-    parts = [event.title]
-    if event.description:
-        parts.append(event.description)
-    if event.event_type:
-        parts.append(f"Type: {event.event_type}")
-    return upsert_memory(
+def sync_event_memory(
+    db: Session,
+    event: LifeEvent,
+    *,
+    previous_entry_id: uuid.UUID | None = None,
+    importance_changed: bool = False,
+) -> Memory:
+    def standalone() -> Memory:
+        parts = [event.title]
+        if event.description:
+            parts.append(event.description)
+        if event.event_type:
+            parts.append(f"Type: {event.event_type}")
+        return upsert_memory(
+            db,
+            memory_type="event",
+            source_id=event.id,
+            title=event.title[:TITLE_MAX],
+            content="\n".join(parts),
+            memory_date=event.event_date,
+            importance_score=event.importance_score,
+            is_private=False,
+        )
+
+    return _sync_record(
         db,
-        memory_type="event",
-        source_id=event.id,
-        title=event.title[:TITLE_MAX],
-        content="\n".join(parts),
-        memory_date=event.event_date,
-        importance_score=event.importance_score,
-        is_private=_journal_is_private(db, event.journal_entry_id),
+        event,
+        standalone,
+        previous_entry_id=previous_entry_id,
+        importance_changed=importance_changed,
     )
 
 
-def delete_memories_for(db: Session, memory_type: str, source_id: uuid.UUID) -> None:
+def sync_record_memory(db: Session, record: Any, **kwargs: Any) -> Memory:
+    """Sync any moment-capable record (used when records are linked after the fact)."""
+    sync = {
+        PersonInteraction: sync_interaction_memory,
+        LifeEvent: sync_event_memory,
+        MusicMemory: sync_music_memory,
+        Decision: sync_decision_memory,
+    }[type(record)]
+    return sync(db, record, **kwargs)
+
+
+def delete_memories_for(
+    db: Session,
+    memory_type: str,
+    source_id: uuid.UUID,
+    journal_entry_id: uuid.UUID | None = None,
+) -> None:
+    """Remove a deleted record's memory; if it was part of a moment, refresh that moment."""
     for memory in db.scalars(
         select(Memory).where(Memory.memory_type == memory_type, Memory.source_id == source_id)
     ):
         db.delete(memory)
     db.commit()
+    resync_moment(db, journal_entry_id)
 
 
 # --- Embeddings ------------------------------------------------------------------
 
 
 def _embedding_text(memory: Memory) -> str:
+    text = memory.content
     if memory.title and not memory.content.startswith(memory.title):
-        return f"{memory.title}\n{memory.content}"
-    return memory.content
+        text = f"{memory.title}\n{text}"
+    if memory.tags:
+        text += "\n" + ", ".join(memory.tags.splitlines())
+    return text
 
 
 def embed_memories(db: Session, memories: list[Memory]) -> int:
@@ -376,24 +550,29 @@ def search_memories(
 # --- Changes ---------------------------------------------------------------------
 
 # Memory types whose source record carries its own importance_score.
-IMPORTANCE_SOURCES: dict[str, type] = {
-    "journal": JournalEntry,
-    "person_interaction": PersonInteraction,
-    "music": MusicMemory,
-    "decision": Decision,
-    "event": LifeEvent,
-}
+IMPORTANCE_SOURCES: dict[str, type] = {"journal": JournalEntry, **MOMENT_MODELS}
+
+
+def _set_source_importance(db: Session, memory: Memory, score: int) -> None:
+    """A journal memory stands for a moment: the entry and everything logged with it."""
+    source_model = IMPORTANCE_SOURCES.get(memory.memory_type)
+    source = db.get(source_model, memory.source_id) if source_model and memory.source_id else None
+    if source is None:
+        return
+    entry_id = source.id if isinstance(source, JournalEntry) else source.journal_entry_id
+    if entry_id is not None:
+        set_moment_importance(db, entry_id, score)
+    else:
+        source.importance_score = score
 
 
 def update_memory(db: Session, memory_id: uuid.UUID, data: MemoryUpdate) -> Memory:
-    """Importance is kept in step with the source record."""
+    """Importance is kept in step with the source record (the whole moment for a journal)."""
     memory = get_memory(db, memory_id)
     changes = data.changes()
-    source_model = IMPORTANCE_SOURCES.get(memory.memory_type)
-    if "importance_score" in changes and source_model and memory.source_id:
-        source = db.get(source_model, memory.source_id)
-        if source is not None:
-            source.importance_score = changes["importance_score"]
+    if "importance_score" in changes:
+        _set_source_importance(db, memory, changes["importance_score"])
+        memory = get_memory(db, memory_id)
     if "title" in changes and changes["title"] != memory.title:
         memory.embedding = None
         memory.embedding_model = None

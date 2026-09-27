@@ -50,13 +50,34 @@ class LifeEventRead(ReadModel):
 TimelineKind = Literal["event", "decision", "interaction", "music", "journal", "purchase"]
 
 
-class TimelineItem(BaseModel):
-    kind: TimelineKind
-    id: uuid.UUID
-    date: date
-    title: str
-    detail: str | None = None
+class TimelineMoment(BaseModel):
+    """One logged moment: a chat message's journal entry and the records made from it,
+    or a single record added on its own."""
+
+    journal_entry_id: uuid.UUID | None = None
+    # What the moment contains, most telling first (event, decision, interaction, …).
+    kinds: list[TimelineKind]
+    line: str
+    # The user's original words (the journal entry), else the record's own detail.
+    text: str | None = None
     importance_score: int
+
+
+class TimelineTag(BaseModel):
+    kind: Literal["person", "place", "amount"]
+    label: str
+
+
+class TimelineDay(BaseModel):
+    date: date
+    headline: str
+    headline_kind: TimelineKind
+    importance_score: int
+    summary: str | None = None
+    # "recap" when the summary is the stored daily recap's narrative.
+    summary_source: Literal["recap", "records"] = "records"
+    tags: list[TimelineTag]
+    moments: list[TimelineMoment]
 
 
 # --- Reports -----------------------------------------------------------------------

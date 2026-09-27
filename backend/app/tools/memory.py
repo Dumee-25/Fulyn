@@ -69,17 +69,19 @@ def set_memory_importance(ctx: ToolContext, args: SetMemoryImportanceArgs) -> di
 MEMORY_TOOLS = [
     Tool(
         "search_memories",
-        "Search the user's memories (journal entries and other memorable records) by "
-        "meaning and by words. Use for open questions about the past: people, places, "
-        "'what did I do', 'memories about X'. Each result says keyword_match: whether it "
-        "contains the query's words.",
+        "Search the user's memories by meaning and by words. One memory per moment: a "
+        "message's journal entry stands for everything logged with it, and its tags list "
+        "the people, places, events, songs and decisions. Use for open questions about the "
+        "past: people, places, 'what did I do', 'memories about X'. Each result says "
+        "keyword_match: whether it contains the query's words.",
         SearchMemoriesArgs,
         search_memories,
     ),
     Tool(
         "set_memory_importance",
         "Change how important a memory is. 'Remember this' or 'core memory' is 5; "
-        "'that's not important' lowers it. Also updates the source journal entry.",
+        "'that's not important' lowers it. Applies to the whole moment: the journal entry "
+        "and every record logged with it.",
         SetMemoryImportanceArgs,
         set_memory_importance,
     ),

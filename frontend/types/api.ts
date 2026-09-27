@@ -108,6 +108,8 @@ export interface Memory {
   source_id: string | null;
   title: string | null;
   content: string;
+  /** People, places, events, songs and decisions logged in the same moment. */
+  tags: string[];
   memory_date: ISODate;
   importance_score: number;
   is_private: boolean;
@@ -259,13 +261,29 @@ export interface WaitingItem {
 
 export type TimelineKind = "event" | "decision" | "interaction" | "music" | "journal" | "purchase";
 
-export interface TimelineItem {
-  kind: TimelineKind;
-  id: string;
-  date: ISODate;
-  title: string;
-  detail: string | null;
+/** One logged moment: a message's journal entry and what it created, or a lone record. */
+export interface TimelineMoment {
+  journal_entry_id: string | null;
+  kinds: TimelineKind[];
+  line: string;
+  text: string | null;
   importance_score: number;
+}
+
+export interface TimelineTag {
+  kind: "person" | "place" | "amount";
+  label: string;
+}
+
+export interface TimelineDay {
+  date: ISODate;
+  headline: string;
+  headline_kind: TimelineKind;
+  importance_score: number;
+  summary: string | null;
+  summary_source: "recap" | "records";
+  tags: TimelineTag[];
+  moments: TimelineMoment[];
 }
 
 export interface Report {

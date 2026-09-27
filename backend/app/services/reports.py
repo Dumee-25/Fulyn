@@ -57,7 +57,10 @@ def generate_daily(db: Session, day: date, llm: LLMClient | None) -> ReportRead:
     if stats.is_empty(data):
         content = f"# {day:%A, %d %B %Y}\n\n{EMPTY}\n"
     else:
-        content = render.render_daily(data, narrative.daily_narrative(llm, data))
+        prose = narrative.daily_narrative(llm, data)
+        # Kept alongside the numbers so the timeline can show it as the day's summary.
+        data["narrative"] = prose
+        content = render.render_daily(data, prose)
     recap = db.scalar(select(DailyRecap).where(DailyRecap.date == day)) or DailyRecap(date=day)
     recap.content, recap.data, recap.generated_at = content, data, func.now()
     db.add(recap)

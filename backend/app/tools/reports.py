@@ -19,6 +19,8 @@ from app.tools.life_logging import (
 )
 from app.tools.registry import Tool, ToolContext
 
+MOMENT_TEXT_LIMIT = 400
+
 
 class SearchEventsArgs(DateRangeArgs):
     query: str | None = None
@@ -33,12 +35,21 @@ class TimelineArgs(ToolArgs):
     date_from: dt.date | None = None
     date_to: dt.date | None = None
     min_importance: int = Field(default=2, ge=0, le=5)
-    limit: int = Field(default=40, ge=1, le=200)
+    limit: int = Field(default=20, ge=1, le=100, description="Number of days")
 
 
 def get_timeline(ctx: ToolContext, args: TimelineArgs) -> dict[str, Any]:
-    items = timeline.get_timeline(ctx.db, **args.model_dump())
-    return {"count": len(items), "items": [i.model_dump() for i in items]}
+    days = timeline.get_timeline(ctx.db, **args.model_dump())
+    payload = []
+    for day in days:
+        data = day.model_dump(exclude={"summary_source"})
+        data["tags"] = [t.label for t in day.tags]
+        for moment in data["moments"]:
+            moment.pop("journal_entry_id")
+            if moment["text"] and len(moment["text"]) > MOMENT_TEXT_LIMIT:
+                moment["text"] = moment["text"][:MOMENT_TEXT_LIMIT] + "…"
+        payload.append(data)
+    return {"count": len(payload), "days": payload}
 
 
 class DayArgs(ToolArgs):
@@ -104,9 +115,11 @@ def report_tools() -> list[Tool]:
         ),
         Tool(
             "get_timeline",
-            "Notable moments across events, decisions, interactions, music, important "
-            "journal entries and major purchases, newest first. Good for 'what happened "
-            "around the time I…' and overviews of a period.",
+            "The life timeline, one item per day, newest first: headline, importance, a "
+            "short summary, tags (people, places, amounts) and the day's moments (one per "
+            "logged message, with the user's own words). Covers events, decisions, "
+            "interactions, music, important journal entries and major purchases. Good for "
+            "'what happened around the time I…' and overviews of a period.",
             TimelineArgs,
             get_timeline,
         ),

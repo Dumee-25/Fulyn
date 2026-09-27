@@ -130,13 +130,17 @@ def update_person(db: Session, person_id: uuid.UUID, data: PersonUpdate) -> Pers
 def delete_person(db: Session, person_id: uuid.UUID) -> None:
     """Deletes the person's interactions too. Music memories are kept, unlinked."""
     person = get_person(db, person_id)
-    for interaction in _interactions_of(db, person.id):
+    interactions = _interactions_of(db, person.id)
+    for interaction in interactions:
         memories.delete_memories_for(db, "person_interaction", interaction.id)
     music = list(db.scalars(select(MusicMemory).where(MusicMemory.person_id == person.id)))
     crud.delete(db, person)
     for item in music:
         db.refresh(item)
         memories.sync_music_memory(db, item)
+    # Moments that mentioned them lose the name from their tags.
+    for entry_id in {i.journal_entry_id for i in interactions if i.journal_entry_id}:
+        memories.resync_moment(db, entry_id)
 
 
 def _interactions_of(db: Session, person_id: uuid.UUID) -> list[PersonInteraction]:
@@ -218,21 +222,28 @@ def update_interaction(
 ) -> PersonInteraction:
     interaction = get_interaction(db, interaction_id)
     old_person = interaction.person_id
+    previous_entry_id = interaction.journal_entry_id
     changes = data.changes()
     if "person_id" in changes:
         get_person(db, changes["person_id"])
     interaction = crud.apply_changes(db, interaction, changes)
     for person_id in {old_person, interaction.person_id}:
         _refresh_person_dates(db, person_id)
-    memories.sync_interaction_memory(db, interaction)
+    memories.sync_interaction_memory(
+        db,
+        interaction,
+        previous_entry_id=previous_entry_id,
+        importance_changed="importance_score" in changes,
+    )
     return interaction
 
 
 def delete_interaction(db: Session, interaction_id: uuid.UUID) -> None:
     interaction = get_interaction(db, interaction_id)
     person_id = interaction.person_id
+    entry_id = interaction.journal_entry_id
     crud.delete(db, interaction)
-    memories.delete_memories_for(db, "person_interaction", interaction_id)
+    memories.delete_memories_for(db, "person_interaction", interaction_id, entry_id)
     _refresh_person_dates(db, person_id)
 
 
@@ -321,11 +332,20 @@ def update_music(db: Session, music_id: uuid.UUID, data: MusicUpdate) -> MusicMe
     changes = data.changes()
     if changes.get("person_id") is not None:
         get_person(db, changes["person_id"])
-    music = crud.apply_changes(db, get_music(db, music_id), changes)
-    memories.sync_music_memory(db, music)
+    music = get_music(db, music_id)
+    previous_entry_id = music.journal_entry_id
+    music = crud.apply_changes(db, music, changes)
+    memories.sync_music_memory(
+        db,
+        music,
+        previous_entry_id=previous_entry_id,
+        importance_changed="importance_score" in changes,
+    )
     return music
 
 
 def delete_music(db: Session, music_id: uuid.UUID) -> None:
-    crud.delete(db, get_music(db, music_id))
-    memories.delete_memories_for(db, "music", music_id)
+    music = get_music(db, music_id)
+    entry_id = music.journal_entry_id
+    crud.delete(db, music)
+    memories.delete_memories_for(db, "music", music_id, entry_id)

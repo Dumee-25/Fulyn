@@ -10,6 +10,7 @@ from app.api.routes.reports import optional_llm
 from app.core.config import get_settings
 from app.core.time import today_local
 from app.main import app
+from app.models.report import DailyRecap
 from app.reports import stats
 from app.schemas.caffeine import CaffeineLogCreate
 from app.schemas.expense import ExpenseCreate
@@ -108,23 +109,144 @@ def week(db: Session) -> None:
 
 
 class TestTimeline:
-    def test_notable_items_only(self, db: Session, week: None) -> None:
-        items = timeline.get_timeline(db, date_from=DAY, date_to=DAY)
-        kinds = {(i.kind, i.title) for i in items}
-        assert ("event", "Barista with Maya") in kinds
-        assert ("decision", "No second keyboard") in kinds
-        assert ("interaction", "With Maya") in kinds
-        assert ("journal", "Big exam passed!") in kinds
-        assert ("purchase", "Keyboard shop: Rs. 28,000") in kinds
-        titles = " ".join(t for _, t in kinds)
-        assert "Had a coffee" not in titles  # routine journal entry
-        assert "1,450" not in titles  # not a major purchase
-        assert "Secret" not in titles and "99,999" not in titles
+    def test_one_card_per_day_with_notable_items_only(self, db: Session, week: None) -> None:
+        (day,) = timeline.get_timeline(db, date_from=DAY, date_to=DAY)
+        assert day.date == DAY
+        assert {m.line for m in day.moments} == {
+            "Big exam passed!",
+            "Barista with Maya",
+            "No second keyboard",
+            "With Maya at Barista",
+            "Keyboard shop: Rs. 28,000",
+        }
+        text = day.model_dump_json()
+        assert "Had a coffee" not in text  # routine journal entry
+        assert "1,450" not in text  # not a major purchase
+        assert "Secret" not in text and "99,999" not in text
+
+    def test_headline_importance_summary_and_tags(self, db: Session, week: None) -> None:
+        (day,) = timeline.get_timeline(db, date_from=DAY, date_to=DAY)
+        # The journal entry is the most important item (4), so it names the day.
+        assert (day.headline, day.headline_kind, day.importance_score) == (
+            "Big exam passed!",
+            "journal",
+            4,
+        )
+        assert day.summary == (
+            "With Maya at Barista. Barista with Maya; Decided: No second keyboard. "
+            "Spent Rs. 28,000 (Keyboard shop)."
+        )
+        assert day.summary_source == "records"
+        assert [(t.kind, t.label) for t in day.tags] == [
+            ("person", "Maya"),
+            ("place", "Barista"),
+            ("amount", "Rs. 28,000 (Keyboard shop)"),
+        ]
+        assert day.moments[0].line == "Big exam passed!"  # most important moment first
 
     def test_min_importance(self, db: Session, week: None) -> None:
-        items = timeline.get_timeline(db, date_from=DAY, date_to=DAY, min_importance=4)
-        assert {i.title for i in items} >= {"Big exam passed!"}
-        assert "Barista with Maya" not in {i.title for i in items}
+        (day,) = timeline.get_timeline(db, date_from=DAY, date_to=DAY, min_importance=4)
+        # Major purchases are not filtered by importance, as before.
+        assert [m.line for m in day.moments] == ["Big exam passed!", "Keyboard shop: Rs. 28,000"]
+        assert [t.kind for t in day.tags] == ["amount"]
+
+    def test_days_newest_first_and_limit_counts_days(self, db: Session) -> None:
+        for offset in range(3):
+            life_events.create_life_event(
+                db,
+                LifeEventCreate(title=f"Event {offset}", event_date=DAY + timedelta(days=offset)),
+            )
+        days = timeline.get_timeline(db, limit=2)
+        assert [d.date for d in days] == [DAY + timedelta(days=2), DAY + timedelta(days=1)]
+
+    def test_headline_prefers_event_then_decision_on_equal_importance(self, db: Session) -> None:
+        maya = people.create_person(db, PersonCreate(name="Maya"))
+        people.create_interaction(
+            db, InteractionCreate(person_id=maya.id, summary="Lunch", interaction_date=DAY)
+        )
+        planning.create_decision(
+            db, DecisionCreate(title="Start running", decision="Run", decision_date=DAY)
+        )
+        (day,) = timeline.get_timeline(db)
+        assert (day.headline, day.headline_kind) == ("Start running", "decision")
+
+        life_events.create_life_event(db, LifeEventCreate(title="Open day", event_date=DAY))
+        (day,) = timeline.get_timeline(db)
+        assert (day.headline, day.headline_kind) == ("Open day", "event")
+        assert day.summary == "With Maya. Also: Decided: Start running."
+
+        # A more important record wins over the kind preference.
+        people.create_interaction(
+            db,
+            InteractionCreate(
+                person_id=maya.id, summary="Long talk", interaction_date=DAY, importance_score=4
+            ),
+        )
+        (day,) = timeline.get_timeline(db)
+        assert (day.headline, day.importance_score) == ("With Maya", 4)
+
+    def test_one_message_is_one_moment(self, db: Session) -> None:
+        text = "Went to open day duties with Chamodi, walked the exhibition under one umbrella"
+        entry = journal.create_journal_entry(
+            db, JournalEntryCreate(raw_text=text, entry_date=DAY, importance_score=3)
+        )
+        chamodi = people.create_person(db, PersonCreate(name="Chamodi"))
+        people.create_interaction(
+            db,
+            InteractionCreate(
+                person_id=chamodi.id,
+                summary="Open day duties together",
+                interaction_date=DAY,
+                location="Exhibition",
+                journal_entry_id=entry.id,
+            ),
+        )
+        life_events.create_life_event(
+            db, LifeEventCreate(title="Open day duties", event_date=DAY, journal_entry_id=entry.id)
+        )
+        (day,) = timeline.get_timeline(db)
+        (moment,) = day.moments
+        assert moment.journal_entry_id == entry.id
+        assert moment.kinds == ["event", "interaction", "journal"]
+        assert moment.line == "Open day duties, with Chamodi"
+        assert moment.text == text
+        assert moment.importance_score == 3
+        assert day.headline == "Open day duties"
+        assert day.summary == "With Chamodi at Exhibition."
+        assert [t.label for t in day.tags] == ["Chamodi", "Exhibition"]
+
+    def test_stored_recap_narrative_replaces_summary(self, db: Session, week: None) -> None:
+        reports.generate_daily(db, DAY, None)  # no model, so no narrative
+        (day,) = timeline.get_timeline(db, date_from=DAY, date_to=DAY)
+        assert day.summary_source == "records"
+
+        reports.generate_daily(db, DAY, FakeLLM(say("A busy, good Wednesday with Maya.")))
+        (day,) = timeline.get_timeline(db, date_from=DAY, date_to=DAY)
+        assert (day.summary, day.summary_source) == ("A busy, good Wednesday with Maya.", "recap")
+
+    def test_narrative_from_recaps_stored_before_it_was_kept_in_data(self, db: Session) -> None:
+        life_events.create_life_event(db, LifeEventCreate(title="Open day", event_date=DAY))
+        content = "# Wednesday, 16 September 2026\n\nA rainy open day.\n\n## Money\n- Spent Rs. 5\n"
+        db.add(DailyRecap(date=DAY, content=content, data={}))
+        db.commit()
+        (day,) = timeline.get_timeline(db)
+        assert day.summary == "A rainy open day."
+
+    def test_vault_moments_never_appear(self, db: Session) -> None:
+        secret = journal.create_journal_entry(
+            db,
+            JournalEntryCreate(
+                raw_text="Secret date with Sam", entry_date=DAY, is_private=True, importance_score=5
+            ),
+        )
+        sam = people.create_person(db, PersonCreate(name="Sam"))
+        people.create_interaction(
+            db,
+            InteractionCreate(
+                person_id=sam.id, summary="Date", interaction_date=DAY, journal_entry_id=secret.id
+            ),
+        )
+        assert timeline.get_timeline(db, min_importance=0) == []
 
 
 class TestStats:
@@ -206,8 +328,9 @@ class TestApi:
             },
         )
         assert res.status_code == 201
-        items = api.get("/api/timeline", params={"date_from": "2026-09-01"}).json()
-        assert items[0]["title"] == "Passed driving test"
+        days = api.get("/api/timeline", params={"date_from": "2026-09-01"}).json()
+        assert days[0]["headline"] == "Passed driving test"
+        assert days[0]["moments"][0]["kinds"] == ["event"]
 
     def test_report_endpoints_without_model(self, api: TestClient, monkeypatch) -> None:
         monkeypatch.setattr(get_settings(), "ollama_model", None)

@@ -23,7 +23,7 @@ from app.schemas.expense import ExpenseCreate, ExpenseRead, ExpenseUpdate
 from app.schemas.journal import JournalEntryCreate, JournalEntryRead, JournalEntryUpdate
 from app.schemas.mood import MoodLogCreate, MoodLogRead, MoodLogUpdate
 from app.schemas.sleep import SleepLogCreate, SleepLogRead, SleepLogUpdate
-from app.services import caffeine, expenses, journal, moods, sleep
+from app.services import caffeine, expenses, journal, memories, moods, sleep
 from app.tools.registry import Tool, ToolContext
 
 Limit = Annotated[int, Field(ge=1, le=100, description="Maximum records to return")]
@@ -372,8 +372,14 @@ def finalize_turn(ctx: ToolContext) -> None:
         return
     if ctx.journal_entry_id is None:
         create_journal_entry(ctx, CreateJournalEntryArgs())
+    linked = []
     for cls, record_id in records:
         record = ctx.db.get(cls, record_id)
         if record is not None and record.journal_entry_id is None:
             record.journal_entry_id = ctx.journal_entry_id
+            linked.append(record)
     ctx.db.commit()
+    # Newly linked records fold into the journal entry's memory (one memory per moment).
+    for record in linked:
+        if type(record) in memories.MOMENT_MODELS.values():
+            memories.sync_record_memory(ctx.db, record)
