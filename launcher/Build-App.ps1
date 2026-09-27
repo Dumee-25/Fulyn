@@ -37,6 +37,10 @@ foreach ($file in @($core, $winforms, $loader)) {
     Copy-Item $file $Bin -Force
 }
 
+# Artwork used by the window: multi-size .ico and the 512px PNG for the splash logo.
+Copy-Item (Join-Path $Launcher "fulyn.ico") (Join-Path $Bin "fulyn.ico") -Force
+Copy-Item (Join-Path (Split-Path -Parent $Launcher) "frontend\public\icon-512.png") (Join-Path $Bin "icon.png") -Force
+
 & $Csc /nologo /target:winexe /platform:x64 /optimize+ `
     "/out:$(Join-Path $Bin 'Fulyn.exe')" `
     "/win32icon:$(Join-Path $Launcher 'fulyn.ico')" `

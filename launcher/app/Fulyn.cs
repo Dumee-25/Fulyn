@@ -24,6 +24,12 @@ namespace Fulyn
         [DllImport("user32.dll")]
         static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+        [DllImport("user32.dll")]
+        static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+        [DllImport("user32.dll")]
+        static extern bool SetProcessDPIAware();
+
         [STAThread]
         static void Main()
         {
@@ -35,6 +41,10 @@ namespace Fulyn
                     FocusExisting();
                     return;
                 }
+                // Render at the display's real resolution instead of being bitmap-stretched
+                // by Windows on scaled displays (which blurs the logo, text and web content).
+                if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) // PER_MONITOR_AWARE_V2
+                    SetProcessDPIAware();
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm());
@@ -58,6 +68,9 @@ namespace Fulyn
 
     class MainForm : Form
     {
+        [DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
         const string AppUrl = "http://localhost:3000/";
         static readonly Color Background = ColorTranslator.FromHtml("#0e1420");
 
@@ -76,11 +89,15 @@ namespace Fulyn
             Directory.CreateDirectory(dataDir);
 
             Text = "Fulyn";
-            Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            // The .ico holds 16-256px images, so the title bar and taskbar get a sharp size.
+            var icoPath = Path.Combine(Application.StartupPath, "fulyn.ico");
+            Icon = File.Exists(icoPath)
+                ? new Icon(icoPath)
+                : Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             BackColor = Background;
             StartPosition = FormStartPosition.CenterScreen;
-            Size = new Size(1280, 860);
-            MinimumSize = new Size(480, 400);
+            Size = new Size(Scale_(1280), Scale_(860));
+            MinimumSize = new Size(Scale_(480), Scale_(400));
             RestoreBounds_();
 
             web.Dock = DockStyle.Fill;
@@ -101,9 +118,8 @@ namespace Fulyn
             splash.BackColor = Background;
 
             var logo = new PictureBox();
-            logo.Image = new Icon(Icon, 96, 96).ToBitmap();
-            logo.SizeMode = PictureBoxSizeMode.Zoom;
-            logo.Size = new Size(96, 96);
+            logo.SizeMode = PictureBoxSizeMode.CenterImage;
+            logo.BackColor = Background;
 
             var title = new Label();
             title.Text = "Fulyn";
@@ -115,13 +131,13 @@ namespace Fulyn
             status.ForeColor = ColorTranslator.FromHtml("#9aa7c2");
             status.Font = new Font("Segoe UI", 10);
             status.TextAlign = ContentAlignment.TopCenter;
-            status.Size = new Size(460, 60);
+            status.Size = new Size(Scale_(460), Scale_(64));
 
             retry.Text = "Try again";
             retry.Visible = false;
             retry.FlatStyle = FlatStyle.Flat;
             retry.ForeColor = Color.White;
-            retry.Size = new Size(110, 32);
+            retry.Size = new Size(Scale_(110), Scale_(32));
             retry.Click += delegate { Prepare(); };
 
             splash.Controls.Add(logo);
@@ -129,17 +145,82 @@ namespace Fulyn
             splash.Controls.Add(status);
             splash.Controls.Add(retry);
 
+            int logoSize = 0;
             EventHandler layout = delegate
             {
+                int size = Scale_(96);
+                if (size != logoSize)
+                {
+                    // Downscale the 512px artwork with high-quality filtering for this DPI.
+                    logoSize = size;
+                    var old = logo.Image;
+                    logo.Image = LoadLogo(size);
+                    if (old != null) old.Dispose();
+                    logo.Size = new Size(size, size);
+                    status.Size = new Size(Scale_(460), Scale_(64));
+                    retry.Size = new Size(Scale_(110), Scale_(32));
+                }
                 int cx = splash.ClientSize.Width / 2;
-                int top = Math.Max(20, splash.ClientSize.Height / 2 - 130);
-                logo.Location = new Point(cx - 48, top);
-                title.Location = new Point(cx - title.Width / 2, top + 108);
-                status.Location = new Point(cx - status.Width / 2, top + 156);
-                retry.Location = new Point(cx - retry.Width / 2, top + 220);
+                int top = Math.Max(Scale_(20), splash.ClientSize.Height / 2 - Scale_(130));
+                logo.Location = new Point(cx - size / 2, top);
+                title.Location = new Point(cx - title.Width / 2, top + Scale_(108));
+                status.Location = new Point(cx - status.Width / 2, top + Scale_(156));
+                retry.Location = new Point(cx - retry.Width / 2, top + Scale_(220));
             };
             splash.Resize += layout;
             splash.HandleCreated += layout;
+            DpiChanged += delegate { layout(this, EventArgs.Empty); };
+        }
+
+        int Scale_(int value)
+        {
+            return (int)Math.Round(value * DeviceDpi / 96.0);
+        }
+
+        Image LoadLogo(int size)
+        {
+            var bitmap = new Bitmap(size, size);
+            var path = Path.Combine(Application.StartupPath, "icon.png");
+            using (var g = Graphics.FromImage(bitmap))
+            {
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                g.Clear(Background);
+                if (File.Exists(path))
+                {
+                    using (var source = Image.FromFile(path))
+                        g.DrawImage(source, 0, 0, size, size);
+                }
+                else
+                {
+                    using (var icon = new Icon(Icon, 256, 256))
+                        g.DrawIcon(icon, new Rectangle(0, 0, size, size));
+                }
+            }
+            return bitmap;
+        }
+
+        // Windows 11: dark title bar in Fulyn's colours instead of the default white one.
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            SetWindowAttribute(20, 1);                                  // immersive dark mode
+            SetWindowAttribute(35, ToColorRef(Background));             // caption colour
+            SetWindowAttribute(36, ToColorRef(Color.White));            // caption text colour
+            SetWindowAttribute(34, ToColorRef(ColorTranslator.FromHtml("#1b2438"))); // border
+        }
+
+        void SetWindowAttribute(int attribute, int value)
+        {
+            try { DwmSetWindowAttribute(Handle, attribute, ref value, sizeof(int)); }
+            catch (Exception) { /* older Windows: keep the default title bar */ }
+        }
+
+        static int ToColorRef(Color color)
+        {
+            return color.R | (color.G << 8) | (color.B << 16);
         }
 
         void SetStatus(string text)
