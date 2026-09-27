@@ -7,6 +7,12 @@ answer questions about them later.
 
 The full design lives in [`Personal Life Agent — Build Specification.md`](./Personal%20Life%20Agent%20—%20Build%20Specification.md).
 
+> **Run it only on your own machine.** Fulyn is a single-user app with **no login or
+> authentication**: anyone who can reach its ports can read and change everything in it.
+> By default every service listens on `127.0.0.1` only. Don't expose ports 3000, 8000 or
+> the database to a network or the internet, don't change the bindings to `0.0.0.0`, and
+> don't deploy it to a public server as it is.
+
 ## Status
 
 | Phase | Scope | State |
@@ -503,7 +509,13 @@ All settings come from environment variables (see `.env.example`):
 - Request bodies are never logged. Unhandled errors return a generic 500 and log only
   the exception type and path.
 - Secrets live in `.env`, which is git-ignored. Only `.env.example` is committed.
-- Postgres, the API and the frontend bind to `127.0.0.1` only.
+- Postgres, the API and the frontend bind to `127.0.0.1` only. There is no login, so this
+  is what keeps your data private: keep it that way (see the warning at the top).
+- Your data lives only in the local Docker database volume, never in this repository.
+  Back it up with the export on the Settings page.
+- Chat messages are sent to the Ollama model you configure. With a local model nothing
+  leaves your machine; a `:cloud` model sends your chat messages to Ollama's hosted
+  service. Embeddings (memory search) can stay local with `nomic-embed-text`.
 
 ## Decisions
 
@@ -537,3 +549,7 @@ All settings come from environment variables (see `.env.example`):
   configurable.
 - **Health endpoint returns 200 even when the DB is down**, with `status: "degraded"`,
   so the UI can show what is wrong. `/api/health/live` never touches the database.
+
+## License
+
+[MIT](./LICENSE) © 2026 Dumee-25
