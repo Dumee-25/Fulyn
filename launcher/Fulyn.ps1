@@ -1,16 +1,20 @@
 <#
-  Fulyn launcher: one click from the Start menu or desktop.
+  Fulyn startup steps:
+    1. start Docker Desktop if the Docker engine isn't running,
+    2. start Ollama if it isn't running (Fulyn still opens without it),
+    3. bring up the production containers (building only what changed),
+    4. wait until the app is healthy.
 
-  Shows a small "Starting Fulyn" window, then:
-    1. starts Docker Desktop if the Docker engine isn't running,
-    2. starts Ollama if it isn't running (Fulyn still opens without it),
-    3. brings up the production containers (builds only what changed),
-    4. waits until the app is healthy,
-    5. opens Fulyn in its own app window (Edge, else Chrome, else the default browser).
+  Modes:
+    -Prepare   Used by Fulyn.exe. No UI: prints "STATUS: ..." / "ERROR: ..." lines and exits
+               0 when Fulyn is ready, 1 on failure. Fulyn.exe shows the window.
+    (default)  Fallback without Fulyn.exe: shows a small splash window, then opens Fulyn in an
+               Edge/Chrome app window.
 
-  If Fulyn is already running it opens immediately.
   Logs: launcher\logs\launcher.log (no personal data is written there).
 #>
+
+param([switch]$Prepare)
 
 # Failures are checked explicitly; "Stop" would turn docker's normal stderr output into errors.
 $ErrorActionPreference = "Continue"
@@ -29,52 +33,71 @@ function Write-Log([string]$Message) {
     Add-Content -Path $Log -Value ("{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message)
 }
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-[System.Windows.Forms.Application]::EnableVisualStyles()
+# --- Progress reporting: stdout lines (-Prepare) or a splash window ----------------
 
-# --- Splash window -------------------------------------------------------------
+$Splash = $null
+$StatusLabel = $null
 
-$Splash = New-Object System.Windows.Forms.Form
-$Splash.Text = "Fulyn"
-$Splash.Icon = New-Object System.Drawing.Icon (Join-Path $PSScriptRoot "fulyn.ico")
-$Splash.FormBorderStyle = "None"
-$Splash.StartPosition = "CenterScreen"
-$Splash.Size = New-Object System.Drawing.Size(360, 150)
-$Splash.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0e1420")
-$Splash.TopMost = $true
-$Splash.ShowInTaskbar = $true
+function Show-Splash {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+    $icon = Join-Path $PSScriptRoot "fulyn.ico"
 
-$Logo = New-Object System.Windows.Forms.PictureBox
-$Logo.Image = (New-Object System.Drawing.Icon((Join-Path $PSScriptRoot "fulyn.ico"), 64, 64)).ToBitmap()
-$Logo.SizeMode = "Zoom"
-$Logo.Location = New-Object System.Drawing.Point(24, 43)
-$Logo.Size = New-Object System.Drawing.Size(64, 64)
-$Splash.Controls.Add($Logo)
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "Fulyn"
+    $form.Icon = New-Object System.Drawing.Icon $icon
+    $form.FormBorderStyle = "None"
+    $form.StartPosition = "CenterScreen"
+    $form.Size = New-Object System.Drawing.Size(360, 150)
+    $form.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0e1420")
+    $form.TopMost = $true
 
-$Title = New-Object System.Windows.Forms.Label
-$Title.Text = "Fulyn"
-$Title.ForeColor = [System.Drawing.Color]::White
-$Title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
-$Title.Location = New-Object System.Drawing.Point(104, 42)
-$Title.AutoSize = $true
-$Splash.Controls.Add($Title)
+    $logo = New-Object System.Windows.Forms.PictureBox
+    $logo.Image = (New-Object System.Drawing.Icon($icon, 64, 64)).ToBitmap()
+    $logo.SizeMode = "Zoom"
+    $logo.Location = New-Object System.Drawing.Point(24, 43)
+    $logo.Size = New-Object System.Drawing.Size(64, 64)
+    $form.Controls.Add($logo)
 
-$Status = New-Object System.Windows.Forms.Label
-$Status.Text = "Starting..."
-$Status.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#9aa7c2")
-$Status.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$Status.Location = New-Object System.Drawing.Point(106, 80)
-$Status.Size = New-Object System.Drawing.Size(240, 40)
-$Splash.Controls.Add($Status)
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = "Fulyn"
+    $title.ForeColor = [System.Drawing.Color]::White
+    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
+    $title.Location = New-Object System.Drawing.Point(104, 42)
+    $title.AutoSize = $true
+    $form.Controls.Add($title)
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = "Starting..."
+    $label.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#9aa7c2")
+    $label.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+    $label.Location = New-Object System.Drawing.Point(106, 80)
+    $label.Size = New-Object System.Drawing.Size(240, 40)
+    $form.Controls.Add($label)
+
+    $form.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+    $script:Splash = $form
+    $script:StatusLabel = $label
+}
 
 function Set-Status([string]$Text) {
-    $Status.Text = $Text
     Write-Log $Text
-    [System.Windows.Forms.Application]::DoEvents()
+    if ($Prepare) {
+        [Console]::Out.WriteLine("STATUS: $Text")
+        [Console]::Out.Flush()
+    } elseif ($StatusLabel) {
+        $StatusLabel.Text = $Text
+        [System.Windows.Forms.Application]::DoEvents()
+    }
 }
 
 function Pump([int]$Milliseconds) {
+    if ($Prepare -or -not $Splash) {
+        Start-Sleep -Milliseconds $Milliseconds
+        return
+    }
     $until = (Get-Date).AddMilliseconds($Milliseconds)
     while ((Get-Date) -lt $until) {
         [System.Windows.Forms.Application]::DoEvents()
@@ -84,10 +107,16 @@ function Pump([int]$Milliseconds) {
 
 function Fail([string]$Message) {
     Write-Log "ERROR: $Message"
-    $Splash.Hide()
-    [System.Windows.Forms.MessageBox]::Show(
-        "$Message`n`nDetails: $Log", "Fulyn could not start", "OK", "Error"
-    ) | Out-Null
+    if ($Prepare) {
+        [Console]::Out.WriteLine("ERROR: $Message")
+        [Console]::Out.Flush()
+    } else {
+        if ($Splash) { $Splash.Hide() }
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.MessageBox]::Show(
+            "$Message`n`nDetails: $Log", "Fulyn could not start", "OK", "Error"
+        ) | Out-Null
+    }
     exit 1
 }
 
@@ -125,9 +154,7 @@ function Wait-Until([scriptblock]$Condition, [int]$Seconds) {
     return $false
 }
 
-# --- Open the app window -----------------------------------------------------------
-
-function Open-App {
+function Open-InBrowser {
     $browsers = @(
         "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
         "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
@@ -147,17 +174,15 @@ function Open-App {
 
 # --- Main --------------------------------------------------------------------------
 
-Write-Log "---- launch ----"
+Write-Log ("---- launch ({0}) ----" -f $(if ($Prepare) { "app" } else { "browser" }))
 
-# Fast path: already running.
 if (Test-FulynHealthy) {
     Write-Log "Already running"
-    Open-App
+    if (-not $Prepare) { Open-InBrowser }
     exit 0
 }
 
-$Splash.Show()
-[System.Windows.Forms.Application]::DoEvents()
+if (-not $Prepare) { Show-Splash }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fail "Docker is not installed or not on PATH. Install Docker Desktop, then try again."
@@ -167,7 +192,7 @@ if (-not (Test-Docker)) {
     Set-Status "Starting Docker..."
     $dockerDesktop = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
     if (-not (Test-Path $dockerDesktop)) {
-        Fail "Docker Desktop was not found at `"$dockerDesktop`". Start it manually, then try again."
+        Fail "Docker Desktop was not found. Start it manually, then try again."
     }
     Start-Process -FilePath $dockerDesktop
     if (-not (Wait-Until { Test-Docker } 240)) {
@@ -196,14 +221,16 @@ $compose = Start-Process -FilePath "docker" -ArgumentList ($ComposeArgs + @("up"
 # Read the handle now: Windows PowerShell only reports ExitCode if it was cached early.
 $null = $compose.Handle
 $started = Get-Date
+$slowShown = $false
 while (-not $compose.HasExited) {
-    if (((Get-Date) - $started).TotalSeconds -gt 20) {
-        $Status.Text = "Preparing Fulyn (first start or after an update can take a few minutes)..."
+    if (-not $slowShown -and ((Get-Date) - $started).TotalSeconds -gt 20) {
+        Set-Status "Preparing Fulyn. The first start, or the first after an update, takes a few minutes..."
+        $slowShown = $true
     }
     Pump 500
 }
 if ($compose.ExitCode -ne 0) {
-    Fail "The containers failed to start (docker compose exit code $($compose.ExitCode)). See $composeLog.err"
+    Fail "The containers failed to start (docker compose exit code $($compose.ExitCode)). See logs\compose.log.err"
 }
 
 Set-Status "Almost ready..."
@@ -212,11 +239,14 @@ if (-not (Wait-Until { Test-FulynHealthy } 180)) {
 }
 
 if (-not (Test-Url $OllamaUrl)) {
-    Set-Status "Ollama is not running: chat will be unavailable."
+    Set-Status "Ollama is not running, so chat will be unavailable."
     Pump 2500
 }
 
 Write-Log "Ready"
-Open-App
-Pump 1500
-$Splash.Close()
+if (-not $Prepare) {
+    Open-InBrowser
+    Pump 1500
+    $Splash.Close()
+}
+exit 0

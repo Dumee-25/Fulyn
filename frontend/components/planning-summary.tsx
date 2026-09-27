@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 
 import { ReminderList } from "@/components/reminder-list";
 import { Badge } from "@/components/ui/badge";
@@ -14,14 +15,19 @@ import {
 import { useApi } from "@/hooks/use-api";
 import type { Reminder, WaitingItem } from "@/types/api";
 
-function inDays(days: number): string {
-  const d = new Date(Date.now() + days * 86_400_000);
+/** End of the local day, `days` from today. Stable for the whole day. */
+function endOfDayIn(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  d.setHours(23, 59, 59, 0);
   return d.toISOString();
 }
 
 /** Dashboard: reminders due in the next week (and overdue ones) and open waiting items. */
 export function PlanningSummary() {
-  const reminders = useApi<Reminder[]>("/reminders", { due_before: inDays(7), limit: 8 });
+  // Computed once: a query value that changes on every render would refetch forever.
+  const [dueBefore] = useState(() => endOfDayIn(7));
+  const reminders = useApi<Reminder[]>("/reminders", { due_before: dueBefore, limit: 8 });
   const waiting = useApi<WaitingItem[]>("/waiting", { limit: 5 });
 
   return (

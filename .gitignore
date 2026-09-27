@@ -29,3 +29,5 @@ Thumbs.db
 
 # Launcher logs
 launcher/logs/
+launcher/bin/
+launcher/.deps/

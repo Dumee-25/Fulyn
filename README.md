@@ -73,8 +73,8 @@ Start menu):
 powershell -ExecutionPolicy Bypass -File launcher/Install-Shortcuts.ps1
 ```
 
-Clicking **Fulyn** shows a small "Starting Fulyn" window and then opens Fulyn in its own
-app window. On the way it:
+The first run also builds `launcher/bin/Fulyn.exe` (see below). Clicking **Fulyn** opens
+the Fulyn window, which shows its progress and then the app. On the way it:
 
 1. starts Docker Desktop if it isn't running,
 2. starts Ollama if it isn't running (Fulyn still opens without it; chat is unavailable),
@@ -89,8 +89,19 @@ volume. To pin Fulyn, right-click it in Start and choose *Pin to taskbar*. Launc
 (no personal data) are in `launcher/logs/`. Remove the shortcuts with
 `launcher/Install-Shortcuts.ps1 -Uninstall`.
 
-The launcher opens Fulyn with Edge's (or Chrome's) app mode. Fulyn is also an installable
-web app: in Edge, open http://localhost:3000 and choose *Apps > Install Fulyn*.
+**Fulyn.exe.** A small Windows app (`launcher/app/Fulyn.cs`) that hosts Fulyn in its own
+window using the Edge WebView2 runtime that ships with Windows 11. Because the window
+belongs to Fulyn.exe, it has its own taskbar button and icon, and pinning it pins Fulyn
+rather than the browser. It runs `launcher/Fulyn.ps1 -Prepare` for the startup steps,
+allows only one instance (a second click focuses the open window), remembers its size and
+position, and opens links outside Fulyn in your default browser. Its browser data lives
+in `%LOCALAPPDATA%\Fulyn`. `launcher/Build-App.ps1` compiles it with the C# compiler that
+comes with Windows (no .NET SDK needed) after downloading Microsoft's WebView2 SDK package
+from nuget.org once; the build output (`launcher/bin`) is not committed. Closing the window
+leaves the containers running; use **Stop Fulyn** to stop them.
+
+Without Fulyn.exe, `launcher/Fulyn.ps1` on its own shows a splash and opens Fulyn in an
+Edge/Chrome app window instead (pinning that pins the browser).
 
 **Production vs development mode.** The launcher uses production mode (optimized frontend
 build, no bind mounts, no auto-reload). For working on the code, use development mode
