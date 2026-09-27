@@ -26,3 +26,6 @@ Thumbs.db
 # Local data / exports
 *.zip
 /exports/
+
+# Launcher logs
+launcher/logs/

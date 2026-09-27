@@ -40,7 +40,9 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     restart: unless-stopped
     environment:
       BACKEND_URL: http://backend:8000

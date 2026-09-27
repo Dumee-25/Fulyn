@@ -1,0 +1,89 @@
+<svg width="1024" height="1024" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="16" x2="232" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#121826"/>
+      <stop offset="0.55" stop-color="#0E1420"/>
+      <stop offset="1" stop-color="#090D15"/>
+    </linearGradient>
+
+    <radialGradient id="bgGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(128 112) rotate(90) scale(120)">
+      <stop offset="0" stop-color="#24324F" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#1A243A" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#0B1018" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="ring" x1="72" y1="60" x2="190" y2="196" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9DD6FF"/>
+      <stop offset="0.45" stop-color="#7C9BFF"/>
+      <stop offset="1" stop-color="#CBA7FF"/>
+    </linearGradient>
+
+    <linearGradient id="prism" x1="128" y1="78" x2="128" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E9F6FF"/>
+      <stop offset="0.42" stop-color="#B9D5FF"/>
+      <stop offset="1" stop-color="#8B9FFF"/>
+    </linearGradient>
+
+    <linearGradient id="facet" x1="96" y1="92" x2="160" y2="164" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#BFCBFF" stop-opacity="0.75"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="smallGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="url(#bgGlow)"/>
+
+  <!-- Ambient stars -->
+  <g opacity="0.9" filter="url(#smallGlow)">
+    <circle cx="72" cy="74" r="2.5" fill="#A9C4FF"/>
+    <circle cx="186" cy="82" r="2" fill="#C6B3FF"/>
+    <circle cx="176" cy="178" r="2.2" fill="#96D3FF"/>
+    <circle cx="86" cy="182" r="1.8" fill="#D9E6FF"/>
+  </g>
+
+  <!-- Halo / remembrance ring -->
+  <g filter="url(#softGlow)">
+    <circle cx="128" cy="128" r="66" stroke="url(#ring)" stroke-width="9" opacity="0.95"/>
+    <path d="M83 169C95 181 110 188 128 188C146 188 161 181 173 169"
+          stroke="url(#ring)" stroke-width="5" stroke-linecap="round" opacity="0.72"/>
+  </g>
+
+  <!-- Central crystal / memory shard -->
+  <g filter="url(#smallGlow)">
+    <path d="M128 76L160 106V145L128 180L96 145V106L128 76Z" fill="url(#prism)"/>
+    <path d="M128 76L160 106L128 120L96 106L128 76Z" fill="url(#facet)" opacity="0.95"/>
+    <path d="M96 106L128 120L128 180L96 145V106Z" fill="#C9D8FF" opacity="0.18"/>
+    <path d="M160 106L128 120L128 180L160 145V106Z" fill="#8CA4FF" opacity="0.2"/>
+
+    <!-- internal memory lines -->
+    <path d="M112 128H144" stroke="#F3F8FF" stroke-opacity="0.9" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M116 141H140" stroke="#E6EEFF" stroke-opacity="0.82" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M120 154H136" stroke="#D7E3FF" stroke-opacity="0.78" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- center spark -->
+    <path d="M128 94L131 102L139 105L131 108L128 116L125 108L117 105L125 102L128 94Z"
+          fill="#FFFFFF"/>
+  </g>
+
+  <!-- subtle border -->
+  <rect x="8.75" y="8.75" width="238.5" height="238.5" rx="55.25"
+        stroke="white" stroke-opacity="0.06" stroke-width="1.5"/>
+</svg>

@@ -64,7 +64,40 @@ cp .env.example .env
 Set `POSTGRES_PASSWORD` (and the matching password inside `DATABASE_URL`). If port
 5432 is already taken on your machine, change `POSTGRES_PORT` and the port in `DATABASE_URL`.
 
-### 2. Run everything with Docker Compose
+### Everyday use on Windows: the launcher
+
+Run this once to add **Fulyn** to the Start menu and desktop (plus **Stop Fulyn** in the
+Start menu):
+
+```bash
+powershell -ExecutionPolicy Bypass -File launcher/Install-Shortcuts.ps1
+```
+
+Clicking **Fulyn** shows a small "Starting Fulyn" window and then opens Fulyn in its own
+app window. On the way it:
+
+1. starts Docker Desktop if it isn't running,
+2. starts Ollama if it isn't running (Fulyn still opens without it; chat is unavailable),
+3. runs the production containers (`docker-compose.prod.yml`), rebuilding only what
+   changed,
+4. waits until the app reports healthy.
+
+If Fulyn is already running it opens straight away. From stopped it takes about 20
+seconds; the first start after a code change takes longer while images rebuild.
+**Stop Fulyn** stops the containers to free memory; your data stays in the database
+volume. To pin Fulyn, right-click it in Start and choose *Pin to taskbar*. Launcher logs
+(no personal data) are in `launcher/logs/`. Remove the shortcuts with
+`launcher/Install-Shortcuts.ps1 -Uninstall`.
+
+The launcher opens Fulyn with Edge's (or Chrome's) app mode. Fulyn is also an installable
+web app: in Edge, open http://localhost:3000 and choose *Apps > Install Fulyn*.
+
+**Production vs development mode.** The launcher uses production mode (optimized frontend
+build, no bind mounts, no auto-reload). For working on the code, use development mode
+below. Both use the same containers and database, so switching simply recreates the
+containers.
+
+### 2. Run everything with Docker Compose (development)
 
 ```bash
 docker compose up -d --build

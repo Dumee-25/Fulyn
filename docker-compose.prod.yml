@@ -1,0 +1,23 @@
+# Production mode: optimized frontend build, no bind mounts, no auto-reload.
+# Used by the Windows launcher (launcher/Fulyn.ps1):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Code changes need a rebuild (the launcher always passes --build; unchanged layers are cached).
+
+services:
+  backend:
+    image: fulyn-backend:prod
+    # Use the image's CMD: migrations, then uvicorn without --reload.
+    command: !reset null
+    volumes: !reset []
+
+  frontend:
+    image: fulyn-frontend:prod
+    build:
+      context: ./frontend
+      target: prod
+      args:
+        BACKEND_URL: http://backend:8000
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+    volumes: !reset []
