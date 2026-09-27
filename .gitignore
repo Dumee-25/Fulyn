@@ -31,3 +31,6 @@ Thumbs.db
 launcher/logs/
 launcher/bin/
 launcher/.deps/
+
+# Local database backups (contain personal data)
+backups/
