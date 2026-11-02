@@ -451,7 +451,6 @@ updated_at
 Examples of relationship_type:
 
 - friend
-- crush
 - mentor
 - lecturer
 - family
