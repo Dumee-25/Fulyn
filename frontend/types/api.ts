@@ -130,7 +130,6 @@ export interface MemorySearchResponse {
 
 export const RELATIONSHIP_TYPES = [
   "friend",
-  "crush",
   "mentor",
   "lecturer",
   "family",

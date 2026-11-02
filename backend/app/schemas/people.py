@@ -7,7 +7,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from app.schemas.common import ImportanceScore, NonBlankStr, PatchModel, ReadModel
 
 RelationshipType = Literal[
-    "friend", "crush", "mentor", "lecturer", "family", "colleague", "acquaintance", "other"
+    "friend", "mentor", "lecturer", "family", "colleague", "acquaintance", "other"
 ]
 PersonName = Annotated[NonBlankStr, Field(max_length=100), AfterValidator(str.strip)]
 

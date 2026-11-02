@@ -324,6 +324,8 @@ finds "Uber home because it was raining".
 - **People** hold only what you have said: name, nickname, relationship (only if stated),
   notes. `first_mentioned_at` and `last_interaction_at` are kept up to date from
   interactions. People are listed alphabetically and never scored or ranked.
+  Relationship is one of friend, mentor, lecturer, family, colleague, acquaintance or other
+  (migration `0011` removed `crush`; existing people with it become unknown).
 - **Name matching:** the agent passes names as you said them. The backend matches an exact
   name or nickname first, then a first name ("Sarah" → "Sarah Perera"), and creates the
   person if nobody matches. If several people match, the tool returns the candidates and
